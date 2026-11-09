@@ -5,8 +5,8 @@ use ratatui::{
     style::{Color, Style},
     widgets::{Block, Paragraph},
 };
-use vellum_clipboard_macos::Operation;
-use vellum_editor::{Action, DestinationPlan, EditorFrame, Movement};
+use vellum_adapter_clipboard_macos::Operation;
+use vellum_model::{Action, DestinationPlan, EditorFrame, Movement};
 
 pub enum Input {
     Clipboard(Option<Operation>),
@@ -293,7 +293,7 @@ mod tests {
             fs,
             sync::atomic::{AtomicU64, Ordering},
         };
-        use vellum_editor::{Editor, reference_profile};
+        use vellum_model::Editor;
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let directory = loop {
             let path = std::env::temp_dir().join(format!(
@@ -309,9 +309,16 @@ mod tests {
         };
         let path = directory.join("source");
         fs::write(&path, b"A\r\n").unwrap();
-        let mut editor = Editor::open(std::slice::from_ref(&path), reference_profile()).unwrap();
+        let mut editor = Editor::open(
+            std::slice::from_ref(&path),
+            crate::reference_session_config(),
+        )
+        .unwrap();
         editor
-            .enable_native_unicode(vellum_editor::NativeUnicodeProfile::reference())
+            .enable_native_unicode(
+                vellum_adapter_unicode_icu::IcuFactory::reference(),
+                vellum_model::NativeUnicodeProfile::reference(),
+            )
             .unwrap();
         for key in [
             KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),

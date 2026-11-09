@@ -5,10 +5,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         execute,
     };
     use std::{io::stdout, path::PathBuf};
-    use vellum_clipboard_macos::{
-        DesktopAccess, IntegrationError, ReferenceClipboard, reference_session_config,
-    };
-    use vellum_editor::{
+    use vellum_adapter_clipboard_macos::{DesktopAccess, IntegrationError, ReferenceClipboard};
+    use vellum_model::{
         Action, CommentDraft, CommentHandle, CommentHistoryDirection, CommentPointProfile,
         DestinationPlan, Editor, EditorError, SearchDirection,
     };
@@ -31,7 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "Ctrl-C/X/V copies/cuts/pastes source through the native AppKit adapter; Ctrl-Q quits. F12 retries retained delivery only, never provider I/O. Binding is lazy; live clipboard qualification remains pending."
         );
         println!(
-            "vellum-tui EXISTING_FILE...\nCtrl-O open literal UTF-8 path (4096-byte frontend entry limit); Ctrl-S save; Ctrl-Z/Y undo/redo; arrows/Home/End; F4 editing lock; F6 next file; Ctrl-Q quit.\nCtrl-F literal find; F3/Shift-F3 next/previous; Ctrl-R replace current; F8 replace all complete results. Empty replacement deletes; Esc cancels. Search again after edits.\nUnsaved files require Ctrl-Q again to discard. Editing lock does not change OS permissions.\nReference profile: macOS local files, 64 KiB/file, LF for generated newlines, native Unicode 18 source movement/deletion (ICU4C 79.1 host prerequisite). Terminal-width tables and form input remain separate. Query/replacement entry limits: 1024/65536 bytes.\nMouse, live OS clipboard, IME preedit, bidi layout and screen-reader behavior are not qualified."
+            "vellum EXISTING_FILE...\nCtrl-O open literal UTF-8 path (4096-byte frontend entry limit); Ctrl-S save; Ctrl-Z/Y undo/redo; arrows/Home/End; F4 editing lock; F6 next file; Ctrl-Q quit.\nCtrl-F literal find; F3/Shift-F3 next/previous; Ctrl-R replace current; F8 replace all complete results. Empty replacement deletes; Esc cancels. Search again after edits.\nUnsaved files require Ctrl-Q again to discard. Editing lock does not change OS permissions.\nReference profile: macOS local files, 64 KiB/file, LF for generated newlines, native Unicode 18 source movement/deletion (ICU4C 79.1 host prerequisite). Terminal-width tables and form input remain separate. Query/replacement entry limits: 1024/65536 bytes.\nMouse, live OS clipboard, IME preedit, bidi layout and screen-reader behavior are not qualified."
         );
         println!(
             "F2 Save As; F7 export copy. Existing destination only: enter its literal path, then Y confirms overwrite; Esc cancels. Save As retains at most 16 prior binding entries in this reference application."
@@ -51,13 +49,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     if args.is_empty() {
-        return Err("usage: vellum-tui EXISTING_FILE...".into());
+        return Err("usage: vellum EXISTING_FILE...".into());
     }
     let paths: Vec<PathBuf> = args.into_iter().map(PathBuf::from).collect();
-    let mut editor = Editor::open(&paths, reference_session_config())?;
-    editor.enable_native_unicode(vellum_editor::NativeUnicodeProfile::reference())?;
+    let mut editor = Editor::open(&paths, vellum_tui::reference_session_config())?;
+    editor.enable_native_unicode(
+        vellum_adapter_unicode_icu::IcuFactory::reference(),
+        vellum_model::NativeUnicodeProfile::reference(),
+    )?;
     let mut clipboard = ReferenceClipboard::new(&mut editor)?;
-    editor.enable_comment_files(vellum_editor::CommentFileLimits::reference())?;
+    editor.enable_comment_files(vellum_model::CommentFileLimits::reference())?;
     ratatui::run(|terminal| -> Result<(), Box<dyn std::error::Error>> {
         struct PasteGuard;
         impl Drop for PasteGuard {
@@ -71,11 +72,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut notice: Option<String> = None;
         let mut opening: Option<(TextPrompt, Entry)> = None;
         let mut destination: Option<DestinationPlan> = None;
-        let mut comment_destination: Option<vellum_editor::CommentFilePlan> = None;
+        let mut comment_destination: Option<vellum_model::CommentFilePlan> = None;
         let mut show_comments = false;
         let mut selected_comment = 0usize;
         loop {
-            if notice.is_none() && clipboard.stage() != vellum_clipboard_macos::ClipboardStage::Idle
+            if notice.is_none()
+                && clipboard.stage() != vellum_adapter_clipboard_macos::ClipboardStage::Idle
             {
                 notice = Some("Clipboard pending; F12 retries delivery only. Discard cannot erase unresolved work.".into());
             }
@@ -539,6 +541,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(not(target_os = "macos"))]
 fn main() {
-    eprintln!("vellum-tui currently requires the macOS filesystem adapter");
+    eprintln!("vellum currently requires the macOS adapter profile");
     std::process::exit(1);
 }

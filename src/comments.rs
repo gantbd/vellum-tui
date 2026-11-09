@@ -6,7 +6,7 @@ use ratatui::{
     text::Line,
     widgets::{Block, Paragraph},
 };
-use vellum_editor::{CommentLocationEvidence, CommentPlacement, CommentRow, CommentTarget};
+use vellum_model::{CommentLocationEvidence, CommentPlacement, CommentRow, CommentTarget};
 pub fn draw_comments(
     frame: &mut Frame<'_>,
     rows: &[CommentRow],

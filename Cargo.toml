@@ -1,12 +1,36 @@
 [package]
-name = "vellum-tui"
+name = "vellum"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
 publish.workspace = true
+description = "Vellum terminal application and optional desktop composition"
+
+[lib]
+name = "vellum_tui"
+
+[features]
+desktop = ["dep:vellum-iced"]
+
+[[bin]]
+name = "vellum"
+path = "src/main.rs"
+
+[[bin]]
+name = "vellum-desktop"
+path = "src/bin/vellum-desktop.rs"
+required-features = ["desktop"]
 
 [dependencies]
-vellum-clipboard-macos = { path = "../vellum-clipboard-macos" }
-vellum-editor = { path = "../vellum-editor", features = ["native-unicode"] }
+vellum-adapter-clipboard-macos = { version = "=0.1.0", path = "../vellum-adapter-clipboard-macos" }
+vellum-adapter-local-fs = { version = "=0.1.0", path = "../vellum-adapter-local-fs" }
+vellum-adapter-annotation-json = { version = "=0.1.0", path = "../vellum-adapter-annotation-json" }
+vellum-adapter-unicode-icu = { version = "=0.1.0", path = "../vellum-adapter-unicode-icu" }
+vellum-model = { version = "=0.1.0", path = "../vellum-model", features = ["native-unicode"] }
+vellum-engine = { version = "=0.1.0", path = "../vellum-engine" }
+vellum-iced = { version = "=0.1.0", path = "../vellum-iced", optional = true }
 ratatui = { version = "=0.30.2", default-features = false, features = ["crossterm"] }
 crossterm = "=0.29.0"
 unicode-segmentation = "=1.13.3"
