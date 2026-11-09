@@ -1,0 +1,15 @@
+[package]
+name = "vellum-tui"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+vellum-clipboard-macos = { path = "../vellum-clipboard-macos" }
+vellum-editor = { path = "../vellum-editor", features = ["native-unicode"] }
+ratatui = { version = "=0.30.2", default-features = false, features = ["crossterm"] }
+crossterm = "=0.29.0"
+unicode-segmentation = "=1.13.3"
+
+[lints]
+workspace = true
