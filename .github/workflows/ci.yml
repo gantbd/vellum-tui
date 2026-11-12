@@ -1,0 +1,50 @@
+name: Coordinated source qualification
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vellum-tui-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Check out terminal peer
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: vellum-tui
+          persist-credentials: false
+      - name: Check out exact Vellum dependency
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: gantbd/vellum
+          ref: 4de24b3b75b4ec712cbe6e5f0a0f7b80a2967a19
+          path: vellum
+          persist-credentials: false
+      - name: Check out exact Keystone dependency
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: gantbd/keystone
+          ref: 3486252cdbaeb2d784756076f43ef6157ed0b7f8
+          path: keystone
+          persist-credentials: false
+      - name: Qualify locked terminal peer
+        working-directory: vellum-tui
+        env:
+          CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+          GIT_CONFIG_GLOBAL: ${{ runner.temp }}/vellum-tui-gitconfig
+          GIT_CONFIG_NOSYSTEM: "1"
+        run: |
+          printf '[url "file://${{ github.workspace }}/keystone"]\n\tinsteadOf = https://github.com/gantbd/keystone\n' > "$GIT_CONFIG_GLOBAL"
+          cargo fmt --check
+          cargo test --locked
+          cargo clippy --all-targets --locked -- -D warnings
+          RUSTDOCFLAGS='-D warnings' cargo doc --no-deps --locked

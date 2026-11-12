@@ -62,3 +62,26 @@ fn payload_has_no_links_or_inbound_application_dependency() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     inspect(root, root);
 }
+
+#[test]
+fn github_ci_is_read_only_and_exactly_coordinates_sources() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let workflow = fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("CI workflow");
+    assert_eq!(
+        workflow
+            .matches("actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683")
+            .count(),
+        3
+    );
+    assert!(workflow.contains("ref: 4de24b3b75b4ec712cbe6e5f0a0f7b80a2967a19"));
+    assert!(workflow.contains("ref: 3486252cdbaeb2d784756076f43ef6157ed0b7f8"));
+    assert!(workflow.contains("permissions:\n  contents: read"));
+    for forbidden in [
+        "upload-artifact",
+        "cargo publish",
+        "git push",
+        "release create",
+    ] {
+        assert!(!workflow.contains(forbidden), "CI contains {forbidden}");
+    }
+}
