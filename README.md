@@ -1,0 +1,53 @@
+# Vellum TUI
+
+`vellum-tui` is the standalone terminal application and reusable Ratatui
+presentation library for Vellum. It is a peer of the macOS GUI and MCP
+projection, not part of the Vellum engine and not a second source/history
+authority.
+
+The executable may start empty, from files, from directories, or from a mix:
+
+```sh
+cargo run --locked --
+cargo run --locked -- README.md src
+```
+
+In the empty state, `Ctrl-O` adds a file or directory and `Ctrl-Q` exits. In an
+active editor, `Ctrl-O` adds another bounded root. Directory discovery is
+deterministic, refuses symbolic links and special files, and admits at most 16
+unique regular files. Run `vellum-tui --help` for the complete current key map
+and qualification limits.
+
+## Composition boundary
+
+The `vellum_tui` library owns terminal projection, key translation, bounded
+prompts, and empty-state rendering. It owns no terminal lifecycle, filesystem
+authority, document source, or history. The `vellum-tui` binary is the
+composition root that selects Vellum's macOS adapters and Ratatui lifecycle.
+
+A future workbench can import the library beside Agora or another engine's
+Ratatui library under one executable. It must provide the shared event loop and
+route effects to each component's own authority; it must not import this
+standalone application shell or merge engine state.
+
+## Current source checkout
+
+Until the pinned Vellum commit is reachable from its declared GitHub remote,
+this unreleased peer uses a sibling `../vellum` path for coordinated local
+qualification:
+
+```text
+parent/
+  vellum/
+  vellum-tui/
+```
+
+Build with `cargo test --locked --offline`. GitHub source installation will
+replace those paths with exact Vellum Git revisions and is not claimed yet.
+Nothing is published to crates.io.
+
+## Platform and nonclaims
+
+The current reference application is macOS-only. It does not yet claim remote
+service composition, live filesystem watching, IME preedit, bidi layout,
+screen-reader behavior, release signing, notarization, or a stable UI API.

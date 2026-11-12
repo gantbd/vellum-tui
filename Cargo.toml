@@ -1,39 +1,49 @@
+[workspace]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/gantbd/vellum-tui"
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
 [package]
-name = "vellum"
+name = "vellum-tui"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish.workspace = true
-description = "Vellum terminal application and optional desktop composition"
+readme = "README.md"
+description = "Composable Ratatui presentation and standalone terminal application for Vellum"
 
 [lib]
 name = "vellum_tui"
 
-[features]
-desktop = ["dep:vellum-iced"]
-
 [[bin]]
-name = "vellum"
+name = "vellum-tui"
 path = "src/main.rs"
 
-[[bin]]
-name = "vellum-desktop"
-path = "src/bin/vellum-desktop.rs"
-required-features = ["desktop"]
-
 [dependencies]
-vellum-adapter-clipboard-macos = { version = "=0.1.0", path = "../vellum-adapter-clipboard-macos" }
-vellum-adapter-local-fs = { version = "=0.1.0", path = "../vellum-adapter-local-fs" }
-vellum-adapter-annotation-json = { version = "=0.1.0", path = "../vellum-adapter-annotation-json" }
-vellum-adapter-unicode-icu = { version = "=0.1.0", path = "../vellum-adapter-unicode-icu" }
-vellum-model = { version = "=0.1.0", path = "../vellum-model", features = ["native-unicode"] }
-vellum-engine = { version = "=0.1.0", path = "../vellum-engine" }
-vellum-iced = { version = "=0.1.0", path = "../vellum-iced", optional = true }
+vellum-adapter-clipboard-macos = { version = "=0.1.0", path = "../vellum/adapters/clipboard-macos" }
+vellum-adapter-local-fs = { version = "=0.1.0", path = "../vellum/adapters/local-fs" }
+vellum-adapter-annotation-json = { version = "=0.1.0", path = "../vellum/adapters/annotation-json" }
+vellum-adapter-unicode-icu = { version = "=0.1.0", path = "../vellum/adapters/unicode-icu" }
+vellum-model = { package = "vellum-editor", version = "=0.1.0", path = "../vellum/host/vellum-editor", features = ["native-unicode"] }
+vellum-host = { version = "=0.1.0", path = "../vellum/host/vellum-host" }
+vellum-engine = { version = "=0.1.0", path = "../vellum/engine/vellum-engine" }
 ratatui = { version = "=0.30.2", default-features = false, features = ["crossterm"] }
 crossterm = "=0.29.0"
 unicode-segmentation = "=1.13.3"
+
+[dev-dependencies]
+serde_json = "=1.0.151"
 
 [lints]
 workspace = true

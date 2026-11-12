@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "package": "vellum-tui",
+  "vellumRevision": "4de24b3b75b4ec712cbe6e5f0a0f7b80a2967a19",
+  "recoveredFromVellumRevision": "920dbfccf3806378fd0274cc51fadffac405931b",
+  "keystoneRevision": "3486252cdbaeb2d784756076f43ef6157ed0b7f8",
+  "remoteReachabilityQualified": false,
+  "cratesIoPublished": false
+}

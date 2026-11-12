@@ -186,6 +186,25 @@ pub fn draw(frame: &mut Frame<'_>, view: &EditorFrame, notice: Option<&str>) {
     }
 }
 
+/// Projection for the lawful empty application state. It owns no document,
+/// cursor, history, filesystem handle, or process lifecycle and can therefore
+/// be embedded alongside other Ratatui surfaces.
+pub fn draw_empty(frame: &mut Frame<'_>, notice: Option<&str>) {
+    let [body, status, help] = Layout::vertical([
+        Constraint::Min(0),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .areas(frame.area());
+    frame.render_widget(
+        Paragraph::new("No files are open.\n\nCtrl-O adds a file or directory.")
+            .block(Block::bordered().title("Vellum | empty workspace")),
+        body,
+    );
+    frame.render_widget(Paragraph::new(notice.unwrap_or("Ready")), status);
+    frame.render_widget(Paragraph::new("Ctrl-O open root | Ctrl-Q quit"), help);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

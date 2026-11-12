@@ -11,7 +11,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         DestinationPlan, Editor, EditorError, SearchDirection,
     };
     use vellum_tui::{
-        Input, PromptInput, TextPrompt, destination_notice, draw, draw_comments, translate_key,
+        Input, PromptInput, TextPrompt, destination_notice, draw, draw_comments,
+        plan_workspace_roots, translate_key,
     };
     enum Entry {
         Open,
@@ -29,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "Ctrl-C/X/V copies/cuts/pastes source through the native AppKit adapter; Ctrl-Q quits. F12 retries retained delivery only, never provider I/O. Binding is lazy; live clipboard qualification remains pending."
         );
         println!(
-            "vellum EXISTING_FILE...\nCtrl-O open literal UTF-8 path (4096-byte frontend entry limit); Ctrl-S save; Ctrl-Z/Y undo/redo; arrows/Home/End; F4 editing lock; F6 next file; Ctrl-Q quit.\nCtrl-F literal find; F3/Shift-F3 next/previous; Ctrl-R replace current; F8 replace all complete results. Empty replacement deletes; Esc cancels. Search again after edits.\nUnsaved files require Ctrl-Q again to discard. Editing lock does not change OS permissions.\nReference profile: macOS local files, 64 KiB/file, LF for generated newlines, native Unicode 18 source movement/deletion (ICU4C 79.1 host prerequisite). Terminal-width tables and form input remain separate. Query/replacement entry limits: 1024/65536 bytes.\nMouse, live OS clipboard, IME preedit, bidi layout and screen-reader behavior are not qualified."
+            "vellum-tui [EXISTING_FILE_OR_DIRECTORY...]\nWith no arguments, starts empty. Ctrl-O adds a file or directory (4096-byte frontend entry limit); Ctrl-S save; Ctrl-Z/Y undo/redo; arrows/Home/End; F4 editing lock; F6 next file; Ctrl-Q quit.\nCtrl-F literal find; F3/Shift-F3 next/previous; Ctrl-R replace current; F8 replace all complete results. Empty replacement deletes; Esc cancels. Search again after edits.\nUnsaved files require Ctrl-Q again to discard. Editing lock does not change OS permissions.\nReference profile: macOS local files, 64 KiB/file, at most 16 discovered files, LF for generated newlines, native Unicode 18 source movement/deletion (ICU4C 79.1 host prerequisite). Terminal-width tables and form input remain separate. Query/replacement entry limits: 1024/65536 bytes.\nMouse, live OS clipboard, IME preedit, bidi layout and screen-reader behavior are not qualified."
         );
         println!(
             "F2 Save As; F7 export copy. Existing destination only: enter its literal path, then Y confirms overwrite; Esc cancels. Save As retains at most 16 prior binding entries in this reference application."
@@ -48,10 +49,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         return Ok(());
     }
-    if args.is_empty() {
-        return Err("usage: vellum EXISTING_FILE...".into());
-    }
-    let paths: Vec<PathBuf> = args.into_iter().map(PathBuf::from).collect();
+    let roots: Vec<PathBuf> = args.into_iter().map(PathBuf::from).collect();
+    let Some(paths) = (if roots.is_empty() {
+        choose_initial_paths()
+    } else {
+        Ok(Some(plan_workspace_roots(&roots)?))
+    })?
+    else {
+        return Ok(());
+    };
     let mut editor = Editor::open(&paths, vellum_tui::reference_session_config())?;
     editor.enable_native_unicode(
         vellum_adapter_unicode_icu::IcuFactory::reference(),
@@ -341,25 +347,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         notice = None;
                     }
                     Ok(PromptInput::Submit(text)) => match match mode {
-                        Entry::Open => editor.open_additional(&PathBuf::from(text)).map(|_| ()),
-                        Entry::Find => editor.find(&text),
-                        Entry::Replace(all) => editor.replace_match(&text, *all),
+                        Entry::Open => plan_workspace_roots([PathBuf::from(text)])
+                            .map_err(|error| error.to_string())
+                            .and_then(|paths| {
+                                editor
+                                    .open_additional_many(&paths)
+                                    .map(|_| ())
+                                    .map_err(|error| error.to_string())
+                            }),
+                        Entry::Find => editor.find(&text).map_err(|error| error.to_string()),
+                        Entry::Replace(all) => editor
+                            .replace_match(&text, *all)
+                            .map_err(|error| error.to_string()),
                         Entry::Destination(save_as) => {
                             match editor.plan_destination(PathBuf::from(text), *save_as) {
                                 Ok(plan) => {
                                     destination = Some(plan);
                                     Ok(())
                                 }
-                                Err(error) => Err(error),
+                                Err(error) => Err(error.to_string()),
                             }
                         }
-                        Entry::Comment(draft) => editor.create_comments(draft, &text).map(|_| ()),
-                        Entry::EditComment(handle) => editor.update_comment(handle, &text),
+                        Entry::Comment(draft) => editor
+                            .create_comments(draft, &text)
+                            .map(|_| ())
+                            .map_err(|error| error.to_string()),
+                        Entry::EditComment(handle) => editor
+                            .update_comment(handle, &text)
+                            .map_err(|error| error.to_string()),
                         Entry::CommentFile(load) => editor
                             .plan_comment_file(PathBuf::from(text), *load)
                             .map(|p| {
                                 comment_destination = Some(p);
-                            }),
+                            })
+                            .map_err(|error| error.to_string()),
                     } {
                         Ok(()) => {
                             if matches!(mode, Entry::Comment(_) | Entry::EditComment(_)) {
@@ -378,7 +399,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 )
                             });
                         }
-                        Err(error) => notice = Some(error.to_string()),
+                        Err(error) => notice = Some(error),
                     },
                     Ok(PromptInput::Pending) => {
                         if entered {
@@ -536,6 +557,72 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Ok(())
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn choose_initial_paths() -> Result<Option<Vec<std::path::PathBuf>>, Box<dyn std::error::Error>> {
+    use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+    use vellum_tui::{PromptInput, TextPrompt, draw_empty, plan_workspace_roots};
+
+    ratatui::run(|terminal| {
+        let mut prompt: Option<TextPrompt> = None;
+        let mut notice: Option<String> = None;
+        loop {
+            let size = terminal.size()?;
+            let prompt_notice = prompt.as_ref().map(|entry| match &notice {
+                Some(error) => format!(
+                    "{error} | {}",
+                    entry.display(usize::from(size.width).saturating_sub(error.len() + 3))
+                ),
+                None => entry.display(usize::from(size.width)),
+            });
+            terminal.draw(|frame| {
+                draw_empty(frame, prompt_notice.as_deref().or(notice.as_deref()));
+            })?;
+            match event::read()? {
+                Event::Key(key)
+                    if key.kind == KeyEventKind::Press
+                        && key.modifiers == KeyModifiers::CONTROL
+                        && key.code == KeyCode::Char('q') =>
+                {
+                    return Ok(None);
+                }
+                Event::Key(key)
+                    if prompt.is_none()
+                        && key.kind == KeyEventKind::Press
+                        && key.modifiers == KeyModifiers::CONTROL
+                        && key.code == KeyCode::Char('o') =>
+                {
+                    prompt = Some(TextPrompt::new(4096, "Open file or directory"));
+                    notice = None;
+                }
+                Event::Key(key) if prompt.is_some() => {
+                    let result = prompt.as_mut().expect("checked above").key(key);
+                    match result {
+                        Ok(PromptInput::Submit(root)) => {
+                            match plan_workspace_roots([std::path::PathBuf::from(root)]) {
+                                Ok(paths) => return Ok(Some(paths)),
+                                Err(error) => notice = Some(error.to_string()),
+                            }
+                            prompt = None;
+                        }
+                        Ok(PromptInput::Cancel) => {
+                            prompt = None;
+                            notice = None;
+                        }
+                        Ok(PromptInput::Pending) => notice = None,
+                        Err(error) => notice = Some(error.to_string()),
+                    }
+                }
+                Event::Paste(text) if prompt.is_some() => {
+                    if let Err(error) = prompt.as_mut().expect("checked above").insert(&text) {
+                        notice = Some(error.to_string());
+                    }
+                }
+                _ => {}
+            }
+        }
     })
 }
 
