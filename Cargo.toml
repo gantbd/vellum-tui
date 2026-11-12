@@ -36,7 +36,6 @@ vellum-adapter-local-fs = { version = "=0.1.0", path = "../vellum/adapters/local
 vellum-adapter-annotation-json = { version = "=0.1.0", path = "../vellum/adapters/annotation-json" }
 vellum-adapter-unicode-icu = { version = "=0.1.0", path = "../vellum/adapters/unicode-icu" }
 vellum-model = { package = "vellum-editor", version = "=0.1.0", path = "../vellum/host/vellum-editor", features = ["native-unicode"] }
-vellum-host = { version = "=0.1.0", path = "../vellum/host/vellum-host" }
 vellum-engine = { version = "=0.1.0", path = "../vellum/engine/vellum-engine" }
 ratatui = { version = "=0.30.2", default-features = false, features = ["crossterm"] }
 crossterm = "=0.29.0"

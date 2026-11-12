@@ -23,8 +23,7 @@ use std::path::{Path, PathBuf};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RootAdmissionError {
     Empty,
-    Capacity,
-    Discovery(vellum_host::workspace::DirectoryDiscoveryRefusal),
+    Plan(vellum_adapter_local_fs::WorkspaceRootPlanRefusalV1),
 }
 
 #[cfg(target_os = "macos")]
@@ -45,45 +44,26 @@ impl std::error::Error for RootAdmissionError {}
 pub fn plan_workspace_roots(
     roots: impl IntoIterator<Item = impl AsRef<Path>>,
 ) -> Result<Vec<PathBuf>, RootAdmissionError> {
-    use vellum_host::workspace::{DirectoryDiscoveryLimits, DirectoryDiscoveryOutcome};
-
-    const MAX_FILES: usize = 16;
-    let limits = DirectoryDiscoveryLimits {
-        max_entries: 4096,
-        max_files: MAX_FILES,
-        max_depth: 64,
-        max_path_bytes: 4096,
-        max_total_path_bytes: 65_536,
+    use vellum_adapter_local_fs::{
+        DirectoryDiscoveryLimits, WorkspaceRootPlanLimitsV1, WorkspaceRootPlanOutcomeV1,
     };
-    let mut files = Vec::new();
-    files
-        .try_reserve_exact(MAX_FILES)
-        .map_err(|_| RootAdmissionError::Capacity)?;
-    let mut saw_root = false;
-    for root in roots {
-        saw_root = true;
-        let discovered = vellum_adapter_local_fs::discover_workspace_files(root.as_ref(), limits);
-        let discovered = match discovered {
-            DirectoryDiscoveryOutcome::Complete { files, .. } => files,
-            DirectoryDiscoveryOutcome::Refused { reason, .. } => {
-                return Err(RootAdmissionError::Discovery(reason));
-            }
-        };
-        for file in discovered {
-            if files.contains(&file) {
-                continue;
-            }
-            if files.len() == MAX_FILES {
-                return Err(RootAdmissionError::Capacity);
-            }
-            files.push(file);
+    let limits = WorkspaceRootPlanLimitsV1 {
+        max_roots: 16,
+        discovery: DirectoryDiscoveryLimits {
+            max_entries: 4096,
+            max_files: 16,
+            max_depth: 64,
+            max_path_bytes: 4096,
+            max_total_path_bytes: 65_536,
+        },
+    };
+    match vellum_adapter_local_fs::plan_workspace_roots_v1(roots, limits) {
+        WorkspaceRootPlanOutcomeV1::Complete { files, .. } if files.is_empty() => {
+            Err(RootAdmissionError::Empty)
         }
+        WorkspaceRootPlanOutcomeV1::Complete { files, .. } => Ok(files),
+        WorkspaceRootPlanOutcomeV1::Refused { reason, .. } => Err(RootAdmissionError::Plan(reason)),
     }
-    if !saw_root || files.is_empty() {
-        return Err(RootAdmissionError::Empty);
-    }
-    files.sort();
-    Ok(files)
 }
 
 #[cfg(target_os = "macos")]
@@ -176,8 +156,10 @@ mod root_admission_tests {
 
         assert!(matches!(
             plan_workspace_roots([&fixture.0]),
-            Err(RootAdmissionError::Discovery(
-                vellum_host::workspace::DirectoryDiscoveryRefusal::UnsupportedResource
+            Err(RootAdmissionError::Plan(
+                vellum_adapter_local_fs::WorkspaceRootPlanRefusalV1::Discovery(
+                    vellum_adapter_local_fs::DirectoryDiscoveryRefusal::UnsupportedResource
+                )
             ))
         ));
     }
@@ -193,7 +175,9 @@ mod root_admission_tests {
         }
         assert_eq!(
             plan_workspace_roots(&roots),
-            Err(RootAdmissionError::Capacity)
+            Err(RootAdmissionError::Plan(
+                vellum_adapter_local_fs::WorkspaceRootPlanRefusalV1::RootLimit
+            ))
         );
     }
 }
