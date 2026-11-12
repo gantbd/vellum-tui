@@ -28,6 +28,12 @@ and qualification limits. In service mode, the `Ctrl-O` prompt accepts `f PATH`
 or `d PATH`; edits and saves use witnessed service operations, and an
 indeterminate operation must be replayed exactly before exit.
 
+`tests/live/service_journey.sh` builds the exact sibling Vellum daemon, starts
+it on private Unix sockets with edit/save ceilings, drives the reusable TUI
+controller through open/edit/save/disconnect, verifies exact persisted bytes,
+and requests orderly control-socket shutdown. CI runs this journey without
+opening an interactive terminal.
+
 ## Composition boundary
 
 The `vellum_tui` library owns terminal projection, key translation, bounded

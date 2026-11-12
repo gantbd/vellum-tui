@@ -83,6 +83,7 @@ fn github_ci_is_read_only_and_exactly_coordinates_sources() {
     assert!(workflow.contains("ref: f4a53ba664acf2a12b6fadfd7d378eef63307c39"));
     assert!(workflow.contains("ref: 3486252cdbaeb2d784756076f43ef6157ed0b7f8"));
     assert!(workflow.contains("permissions:\n  contents: read"));
+    assert!(workflow.contains("./tests/live/service_journey.sh"));
     for forbidden in [
         "upload-artifact",
         "cargo publish",
@@ -91,4 +92,22 @@ fn github_ci_is_read_only_and_exactly_coordinates_sources() {
     ] {
         assert!(!workflow.contains(forbidden), "CI contains {forbidden}");
     }
+}
+
+#[test]
+fn live_service_journey_uses_only_the_peer_sdk_and_real_daemon_binary() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let journey = fs::read_to_string(root.join("tests/live/service_journey.sh"))
+        .expect("live service journey");
+    assert!(journey.contains("--package vellum-daemon"));
+    assert!(journey.contains("--allow-edit --allow-save"));
+    assert!(journey.contains("--test live_service"));
+    assert!(journey.contains("--shutdown"));
+    assert!(!journey.contains("cargo publish"));
+    assert!(!journey.contains("git push"));
+
+    let test = fs::read_to_string(root.join("tests/live_service.rs")).expect("live test");
+    assert!(test.contains("vellum_sdk_client"));
+    assert!(test.contains("ServiceEditor"));
+    assert!(!test.contains("vellum_daemon"));
 }

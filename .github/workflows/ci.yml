@@ -48,3 +48,4 @@ jobs:
           cargo test --locked
           cargo clippy --all-targets --locked -- -D warnings
           RUSTDOCFLAGS='-D warnings' cargo doc --no-deps --locked
+          ./tests/live/service_journey.sh
