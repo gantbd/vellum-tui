@@ -664,8 +664,8 @@ fn run_service_mode(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::erro
         workspace::{PersistenceProjectionV1, WorkspaceClientV1},
     };
     use vellum_tui::{
-        Input, PromptInput, ServiceAction, ServiceEditor, TextPrompt, draw, draw_empty,
-        translate_key,
+        PromptInput, ServiceAction, ServiceEditor, ServiceInput, TextPrompt, draw, draw_empty,
+        translate_key, translate_service_input,
     };
 
     let (socket, credential) = match args {
@@ -787,8 +787,8 @@ fn run_service_mode(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::erro
                 let Event::Key(key) = event else {
                     continue;
                 };
-                match translate_key(key) {
-                    Input::Quit => {
+                match translate_service_input(translate_key(key)) {
+                    ServiceInput::Quit => {
                         let persistence = editor.workspace().projection().persistence();
                         if persistence == PersistenceProjectionV1::Indeterminate {
                             notice = Some(
@@ -806,40 +806,19 @@ fn run_service_mode(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::erro
                             break;
                         }
                     }
-                    Input::CancelQuit => {
+                    ServiceInput::CancelQuit => {
                         confirming_discard = false;
                         notice = None;
                     }
-                    Input::Open => {
+                    ServiceInput::Open => {
                         prompt = Some(TextPrompt::new(4096, "Add: f PATH or d PATH"));
                         notice = None;
                     }
-                    Input::Edit(action) => {
-                        let action = match action {
-                            vellum_model::Action::Insert(text) => Some(ServiceAction::Insert(text)),
-                            vellum_model::Action::Backspace => Some(ServiceAction::Backspace),
-                            vellum_model::Action::Delete => Some(ServiceAction::Delete),
-                            vellum_model::Action::Left => Some(ServiceAction::Left),
-                            vellum_model::Action::Right => Some(ServiceAction::Right),
-                            vellum_model::Action::Up => Some(ServiceAction::Up),
-                            vellum_model::Action::Down => Some(ServiceAction::Down),
-                            vellum_model::Action::Home => Some(ServiceAction::Home),
-                            vellum_model::Action::End => Some(ServiceAction::End),
-                            vellum_model::Action::Save => Some(ServiceAction::Save),
-                            vellum_model::Action::NextDocument => Some(ServiceAction::NextDocument),
-                            _ => None,
-                        };
-                        notice = match action {
-                            Some(action) => {
-                                editor.apply(action).err().map(|error| error.to_string())
-                            }
-                            None => {
-                                Some("This command is not yet available in service mode".into())
-                            }
-                        };
+                    ServiceInput::Apply(action) => {
+                        notice = editor.apply(action).err().map(|error| error.to_string());
                         confirming_discard = false;
                     }
-                    _ => {
+                    ServiceInput::Unsupported => {
                         notice = Some("This command is not yet available in service mode".into());
                     }
                 }

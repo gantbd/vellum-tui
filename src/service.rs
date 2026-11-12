@@ -23,6 +23,41 @@ pub enum ServiceAction {
     Refresh,
 }
 
+/// Closed service-mode interpretation of presentation input. Hosts may own
+/// lifecycle and prompts while reusing the exact edit mapping without reaching
+/// through the TUI facade into the editor model.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ServiceInput {
+    Quit,
+    CancelQuit,
+    Open,
+    Apply(ServiceAction),
+    Unsupported,
+}
+
+pub fn translate_service_input(input: crate::Input) -> ServiceInput {
+    match input {
+        crate::Input::Quit => ServiceInput::Quit,
+        crate::Input::CancelQuit => ServiceInput::CancelQuit,
+        crate::Input::Open => ServiceInput::Open,
+        crate::Input::Edit(action) => match action {
+            vellum_model::Action::Insert(text) => ServiceInput::Apply(ServiceAction::Insert(text)),
+            vellum_model::Action::Backspace => ServiceInput::Apply(ServiceAction::Backspace),
+            vellum_model::Action::Delete => ServiceInput::Apply(ServiceAction::Delete),
+            vellum_model::Action::Left => ServiceInput::Apply(ServiceAction::Left),
+            vellum_model::Action::Right => ServiceInput::Apply(ServiceAction::Right),
+            vellum_model::Action::Up => ServiceInput::Apply(ServiceAction::Up),
+            vellum_model::Action::Down => ServiceInput::Apply(ServiceAction::Down),
+            vellum_model::Action::Home => ServiceInput::Apply(ServiceAction::Home),
+            vellum_model::Action::End => ServiceInput::Apply(ServiceAction::End),
+            vellum_model::Action::Save => ServiceInput::Apply(ServiceAction::Save),
+            vellum_model::Action::NextDocument => ServiceInput::Apply(ServiceAction::NextDocument),
+            _ => ServiceInput::Unsupported,
+        },
+        _ => ServiceInput::Unsupported,
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ServiceEditorError(pub WorkspaceClientErrorV1);
 
@@ -370,6 +405,22 @@ mod tests {
     fn line_projection_uses_terminal_cells_not_source_bytes() {
         assert_eq!(line_and_column("a界\nnext", "a界".len()), (0, 3));
         assert_eq!(line_and_column("a界\nnext", "a界\nn".len()), (1, 1));
+    }
+
+    #[test]
+    fn service_input_mapping_is_closed_over_the_supported_controller_surface() {
+        assert_eq!(
+            translate_service_input(crate::Input::Edit(vellum_model::Action::Insert("x".into()))),
+            ServiceInput::Apply(ServiceAction::Insert("x".into()))
+        );
+        assert_eq!(
+            translate_service_input(crate::Input::Edit(vellum_model::Action::Undo)),
+            ServiceInput::Unsupported
+        );
+        assert_eq!(
+            translate_service_input(crate::Input::Open),
+            ServiceInput::Open
+        );
     }
 
     #[test]
