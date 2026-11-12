@@ -37,9 +37,12 @@ vellum-adapter-annotation-json = { version = "=0.1.0", path = "../vellum/adapter
 vellum-adapter-unicode-icu = { version = "=0.1.0", path = "../vellum/adapters/unicode-icu" }
 vellum-model = { package = "vellum-editor", version = "=0.1.0", path = "../vellum/host/vellum-editor", features = ["native-unicode"] }
 vellum-engine = { version = "=0.1.0", path = "../vellum/engine/vellum-engine" }
+vellum-sdk-client = { version = "=0.1.0", path = "../vellum/sdk/client" }
+vellum-adapter-local-authentication = { version = "=0.1.0", path = "../vellum/adapters/local-authentication" }
 ratatui = { version = "=0.30.2", default-features = false, features = ["crossterm"] }
 crossterm = "=0.29.0"
 unicode-segmentation = "=1.13.3"
+unicode-width = "=0.2.2"
 
 [dev-dependencies]
 serde_json = "=1.0.151"

@@ -208,6 +208,7 @@ checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
  "block-buffer",
  "crypto-common",
+ "subtle",
 ]
 
 [[package]]
@@ -312,6 +313,15 @@ name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
+
+[[package]]
+name = "hmac"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
+dependencies = [
+ "digest",
+]
 
 [[package]]
 name = "icu_collections"
@@ -475,6 +485,11 @@ dependencies = [
  "portable-atomic",
  "thiserror",
 ]
+
+[[package]]
+name = "keystone-codec"
+version = "0.0.1"
+source = "git+https://github.com/gantbd/keystone?rev=3486252cdbaeb2d784756076f43ef6157ed0b7f8#3486252cdbaeb2d784756076f43ef6157ed0b7f8"
 
 [[package]]
 name = "keystone-observe"
@@ -993,6 +1008,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "subtle"
+version = "2.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
+
+[[package]]
 name = "syn"
 version = "2.0.119"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1150,6 +1171,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "vellum-adapter-local-authentication"
+version = "0.1.0"
+dependencies = [
+ "getrandom",
+ "hmac",
+ "rustix",
+ "sha2",
+ "vellum-host",
+ "vellum-transport",
+]
+
+[[package]]
 name = "vellum-adapter-local-fs"
 version = "0.1.0"
 dependencies = [
@@ -1167,6 +1200,13 @@ dependencies = [
  "icu_segmenter",
  "vellum-engine",
  "vellum-host",
+]
+
+[[package]]
+name = "vellum-client"
+version = "0.1.0"
+dependencies = [
+ "vellum-protocol",
 ]
 
 [[package]]
@@ -1204,11 +1244,30 @@ name = "vellum-protocol"
 version = "0.1.0"
 
 [[package]]
+name = "vellum-sdk-client"
+version = "0.1.0"
+dependencies = [
+ "vellum-client",
+ "vellum-protocol",
+ "vellum-transport",
+ "vellum-wire",
+ "vellum-workspace-client",
+]
+
+[[package]]
 name = "vellum-session"
 version = "0.1.0"
 dependencies = [
  "vellum-engine",
  "vellum-host",
+]
+
+[[package]]
+name = "vellum-transport"
+version = "0.1.0"
+dependencies = [
+ "vellum-protocol",
+ "vellum-wire",
 ]
 
 [[package]]
@@ -1219,12 +1278,31 @@ dependencies = [
  "ratatui",
  "serde_json",
  "unicode-segmentation",
+ "unicode-width",
  "vellum-adapter-annotation-json",
  "vellum-adapter-clipboard-macos",
+ "vellum-adapter-local-authentication",
  "vellum-adapter-local-fs",
  "vellum-adapter-unicode-icu",
  "vellum-editor",
  "vellum-engine",
+ "vellum-sdk-client",
+]
+
+[[package]]
+name = "vellum-wire"
+version = "0.1.0"
+dependencies = [
+ "keystone-codec",
+ "vellum-protocol",
+]
+
+[[package]]
+name = "vellum-workspace-client"
+version = "0.1.0"
+dependencies = [
+ "vellum-client",
+ "vellum-protocol",
 ]
 
 [[package]]

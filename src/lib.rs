@@ -12,6 +12,10 @@ pub use terminal::*;
 mod comments;
 #[cfg(target_os = "macos")]
 pub use comments::*;
+#[cfg(target_os = "macos")]
+mod service;
+#[cfg(target_os = "macos")]
+pub use service::*;
 
 #[cfg(target_os = "macos")]
 use std::path::{Path, PathBuf};

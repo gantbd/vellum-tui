@@ -12,11 +12,21 @@ cargo run --locked --
 cargo run --locked -- README.md src
 ```
 
+It can instead project a running Vellum service without taking source or
+persistence authority:
+
+```sh
+cargo run --locked -- --service /path/to/vellum.sock
+cargo run --locked -- --service /path/to/vellum.sock --credential /path/to/credential
+```
+
 In the empty state, `Ctrl-O` adds a file or directory and `Ctrl-Q` exits. In an
 active editor, `Ctrl-O` adds another bounded root. Directory discovery is
 deterministic, refuses symbolic links and special files, and admits at most 16
 unique regular files. Run `vellum-tui --help` for the complete current key map
-and qualification limits.
+and qualification limits. In service mode, the `Ctrl-O` prompt accepts `f PATH`
+or `d PATH`; edits and saves use witnessed service operations, and an
+indeterminate operation must be replayed exactly before exit.
 
 ## Composition boundary
 
@@ -48,6 +58,7 @@ Nothing is published to crates.io.
 
 ## Platform and nonclaims
 
-The current reference application is macOS-only. It does not yet claim remote
-service composition, live filesystem watching, IME preedit, bidi layout,
-screen-reader behavior, release signing, notarization, or a stable UI API.
+The current reference application is macOS-only. Its Unix-socket service mode
+is a local peer projection, not a remote-network transport claim. It does not
+yet claim live filesystem watching, IME preedit, bidi layout, screen-reader
+behavior, release signing, notarization, or a stable UI API.

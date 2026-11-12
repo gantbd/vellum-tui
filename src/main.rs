@@ -25,12 +25,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let args: Vec<_> = std::env::args_os().skip(1).collect();
+    if args.first().is_some_and(|argument| argument == "--service") {
+        return run_service_mode(&args);
+    }
     if args.len() == 1 && args[0] == "--help" {
         println!(
             "Ctrl-C/X/V copies/cuts/pastes source through the native AppKit adapter; Ctrl-Q quits. F12 retries retained delivery only, never provider I/O. Binding is lazy; live clipboard qualification remains pending."
         );
         println!(
             "vellum-tui [EXISTING_FILE_OR_DIRECTORY...]\nWith no arguments, starts empty. Ctrl-O adds a file or directory (4096-byte frontend entry limit); Ctrl-S save; Ctrl-Z/Y undo/redo; arrows/Home/End; F4 editing lock; F6 next file; Ctrl-Q quit.\nCtrl-F literal find; F3/Shift-F3 next/previous; Ctrl-R replace current; F8 replace all complete results. Empty replacement deletes; Esc cancels. Search again after edits.\nUnsaved files require Ctrl-Q again to discard. Editing lock does not change OS permissions.\nReference profile: macOS local files, 64 KiB/file, at most 16 discovered files, LF for generated newlines, native Unicode 18 source movement/deletion (ICU4C 79.1 host prerequisite). Terminal-width tables and form input remain separate. Query/replacement entry limits: 1024/65536 bytes.\nMouse, live OS clipboard, IME preedit, bidi layout and screen-reader behavior are not qualified."
+        );
+        println!(
+            "Service mode: vellum-tui --service SOCKET [--credential CREDENTIAL]. It uses the shared workspace client, polls revision notifications, and supports witnessed text editing, save, document cycling, and explicit 'f PATH' / 'd PATH' admission through Ctrl-O."
         );
         println!(
             "F2 Save As; F7 export copy. Existing destination only: enter its literal path, then Y confirms overwrite; Esc cancels. Save As retains at most 16 prior binding entries in this reference application."
@@ -624,6 +630,227 @@ fn choose_initial_paths() -> Result<Option<Vec<std::path::PathBuf>>, Box<dyn std
             }
         }
     })
+}
+
+#[cfg(target_os = "macos")]
+enum ServiceConnector {
+    Plain(vellum_sdk_client::transport::UnixConnector),
+    Authenticated(vellum_sdk_client::transport::AuthenticatedUnixConnector),
+}
+
+#[cfg(target_os = "macos")]
+impl vellum_sdk_client::transport::FrameExchange for ServiceConnector {
+    fn exchange(
+        &mut self,
+        request: &[u8],
+        max_reply_bytes: usize,
+    ) -> Result<Vec<u8>, vellum_sdk_client::transport::TransportError> {
+        match self {
+            Self::Plain(connector) => connector.exchange(request, max_reply_bytes),
+            Self::Authenticated(connector) => connector.exchange(request, max_reply_bytes),
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn run_service_mode(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
+    use crossterm::{
+        event::{self, DisableBracketedPaste, EnableBracketedPaste, Event},
+        execute,
+    };
+    use std::{io::stdout, path::PathBuf, time::Duration};
+    use vellum_sdk_client::{
+        transport::{AuthenticatedUnixConnector, RemoteTransport, TransportLimits, UnixConnector},
+        workspace::{PersistenceProjectionV1, WorkspaceClientV1},
+    };
+    use vellum_tui::{
+        Input, PromptInput, ServiceAction, ServiceEditor, TextPrompt, draw, draw_empty,
+        translate_key,
+    };
+
+    let (socket, credential) = match args {
+        [service, socket] if service == "--service" => (PathBuf::from(socket), None),
+        [service, socket, flag, credential] if service == "--service" && flag == "--credential" => {
+            (PathBuf::from(socket), Some(PathBuf::from(credential)))
+        }
+        _ => {
+            return Err(std::io::Error::other(
+                "usage: vellum-tui --service SOCKET [--credential CREDENTIAL]",
+            )
+            .into());
+        }
+    };
+    let connector = if let Some(credential) = credential {
+        let mut store = vellum_adapter_local_authentication::LocalCredentialStoreV1::default();
+        let record = store
+            .load(&credential)
+            .map_err(|error| std::io::Error::other(format!("credential refused: {error:?}")))?;
+        let provider =
+            vellum_adapter_local_authentication::LocalCredentialClaimProviderV1::new(record);
+        ServiceConnector::Authenticated(AuthenticatedUnixConnector::with_provider(socket, provider))
+    } else {
+        ServiceConnector::Plain(UnixConnector::new(socket))
+    };
+    let transport = RemoteTransport::new(connector, TransportLimits::reference())
+        .map_err(|error| std::io::Error::other(format!("transport refused: {error:?}")))?;
+    let workspace = WorkspaceClientV1::connect(transport)
+        .map_err(|error| std::io::Error::other(format!("service refused: {error:?}")))?;
+    let editor = ServiceEditor::open(workspace)?;
+    let editor = ratatui::run(
+        |terminal| -> Result<ServiceEditor<_>, Box<dyn std::error::Error>> {
+            struct PasteGuard;
+            impl Drop for PasteGuard {
+                fn drop(&mut self) {
+                    let _ = execute!(stdout(), DisableBracketedPaste);
+                }
+            }
+            let _paste_guard = PasteGuard;
+            execute!(stdout(), EnableBracketedPaste)?;
+            let mut editor = editor;
+            let mut prompt: Option<TextPrompt> = None;
+            let mut notice: Option<String> = None;
+            let mut confirming_discard = false;
+            loop {
+                if let Err(error) = editor.poll() {
+                    notice = Some(error.to_string());
+                }
+                let size = terminal.size()?;
+                let prompt_notice = prompt.as_ref().map(|entry| match &notice {
+                    Some(error) => format!(
+                        "{error} | {}",
+                        entry.display(usize::from(size.width).saturating_sub(error.len() + 3))
+                    ),
+                    None => entry.display(usize::from(size.width)),
+                });
+                if let Some(frame) = editor.frame(size.height.saturating_sub(4)) {
+                    terminal.draw(|terminal_frame| {
+                        draw(
+                            terminal_frame,
+                            &frame,
+                            prompt_notice.as_deref().or(notice.as_deref()),
+                        )
+                    })?;
+                } else {
+                    terminal.draw(|terminal_frame| {
+                        draw_empty(
+                            terminal_frame,
+                            prompt_notice.as_deref().or(notice.as_deref()),
+                        )
+                    })?;
+                }
+                if !event::poll(Duration::from_millis(250))? {
+                    continue;
+                }
+                let event = event::read()?;
+                if let Some(entry) = prompt.as_mut() {
+                    match event {
+                        Event::Key(key) => match entry.key(key) {
+                            Ok(PromptInput::Submit(input)) => {
+                                let result = input
+                                    .strip_prefix("f ")
+                                    .map(|path| editor.admit_file(path.to_owned()))
+                                    .or_else(|| {
+                                        input
+                                            .strip_prefix("d ")
+                                            .map(|path| editor.admit_directory(path.to_owned()))
+                                    });
+                                notice = Some(match result {
+                                    Some(Ok(())) => "Workspace membership updated".into(),
+                                    Some(Err(error)) => error.to_string(),
+                                    None => "Use 'f PATH' or 'd PATH'".into(),
+                                });
+                                prompt = None;
+                            }
+                            Ok(PromptInput::Cancel) => {
+                                prompt = None;
+                                notice = None;
+                            }
+                            Ok(PromptInput::Pending) => notice = None,
+                            Err(error) => notice = Some(error.to_string()),
+                        },
+                        Event::Paste(text) => {
+                            if let Err(error) = entry.insert(&text) {
+                                notice = Some(error.to_string());
+                            }
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
+                if let Event::Paste(text) = event {
+                    notice = editor
+                        .apply(ServiceAction::Insert(text))
+                        .err()
+                        .map(|error| error.to_string());
+                    continue;
+                }
+                let Event::Key(key) = event else {
+                    continue;
+                };
+                match translate_key(key) {
+                    Input::Quit => {
+                        let persistence = editor.workspace().projection().persistence();
+                        if persistence == PersistenceProjectionV1::Indeterminate {
+                            notice = Some(
+                                "An edit/save outcome is indeterminate; repeat the exact action before exit"
+                                    .into(),
+                            );
+                        } else if persistence == PersistenceProjectionV1::Dirty
+                            && !confirming_discard
+                        {
+                            confirming_discard = true;
+                            notice = Some(
+                                "Unsaved service edit; Ctrl-Q again discards, Esc cancels".into(),
+                            );
+                        } else {
+                            break;
+                        }
+                    }
+                    Input::CancelQuit => {
+                        confirming_discard = false;
+                        notice = None;
+                    }
+                    Input::Open => {
+                        prompt = Some(TextPrompt::new(4096, "Add: f PATH or d PATH"));
+                        notice = None;
+                    }
+                    Input::Edit(action) => {
+                        let action = match action {
+                            vellum_model::Action::Insert(text) => Some(ServiceAction::Insert(text)),
+                            vellum_model::Action::Backspace => Some(ServiceAction::Backspace),
+                            vellum_model::Action::Delete => Some(ServiceAction::Delete),
+                            vellum_model::Action::Left => Some(ServiceAction::Left),
+                            vellum_model::Action::Right => Some(ServiceAction::Right),
+                            vellum_model::Action::Up => Some(ServiceAction::Up),
+                            vellum_model::Action::Down => Some(ServiceAction::Down),
+                            vellum_model::Action::Home => Some(ServiceAction::Home),
+                            vellum_model::Action::End => Some(ServiceAction::End),
+                            vellum_model::Action::Save => Some(ServiceAction::Save),
+                            vellum_model::Action::NextDocument => Some(ServiceAction::NextDocument),
+                            _ => None,
+                        };
+                        notice = match action {
+                            Some(action) => {
+                                editor.apply(action).err().map(|error| error.to_string())
+                            }
+                            None => {
+                                Some("This command is not yet available in service mode".into())
+                            }
+                        };
+                        confirming_discard = false;
+                    }
+                    _ => {
+                        notice = Some("This command is not yet available in service mode".into());
+                    }
+                }
+            }
+            Ok(editor)
+        },
+    )?;
+    editor
+        .disconnect()
+        .map_err(|failure| std::io::Error::other(format!("disconnect refused: {failure:?}")))?;
+    Ok(())
 }
 
 #[cfg(not(target_os = "macos"))]

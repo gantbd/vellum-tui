@@ -1,7 +1,7 @@
 use serde_json::Value;
 use std::{fs, path::Path};
 
-const VELLUM_REVISION: &str = "a76800cf755802498d38b381d2ccd4781e58c54d";
+const VELLUM_REVISION: &str = "f4a53ba664acf2a12b6fadfd7d378eef63307c39";
 const RECOVERY_REVISION: &str = "920dbfccf3806378fd0274cc51fadffac405931b";
 const KEYSTONE_REVISION: &str = "3486252cdbaeb2d784756076f43ef6157ed0b7f8";
 
@@ -24,6 +24,13 @@ fn unpublished_peer_is_bound_to_the_recovered_and_current_sources() {
     assert!(manifest.contains("repository = \"https://github.com/gantbd/vellum-tui\""));
     assert!(manifest.contains("publish = false"));
     assert!(manifest.contains("path = \"../vellum/host/vellum-editor\""));
+    assert!(manifest.contains("vellum-sdk-client"));
+    for forbidden in ["vellum-client =", "vellum-transport =", "vellum-protocol ="] {
+        assert!(
+            !manifest.contains(forbidden),
+            "terminal peer bypasses the SDK through {forbidden}"
+        );
+    }
     assert!(!manifest.contains("vellum-iced"));
     assert!(!manifest.contains("vellum-gui-macos"));
 }
@@ -73,7 +80,7 @@ fn github_ci_is_read_only_and_exactly_coordinates_sources() {
             .count(),
         3
     );
-    assert!(workflow.contains("ref: a76800cf755802498d38b381d2ccd4781e58c54d"));
+    assert!(workflow.contains("ref: f4a53ba664acf2a12b6fadfd7d378eef63307c39"));
     assert!(workflow.contains("ref: 3486252cdbaeb2d784756076f43ef6157ed0b7f8"));
     assert!(workflow.contains("permissions:\n  contents: read"));
     for forbidden in [
