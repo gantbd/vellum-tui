@@ -40,6 +40,9 @@ The `vellum_tui` library owns terminal projection, key translation, bounded
 prompts, and empty-state rendering. It owns no terminal lifecycle, filesystem
 authority, document source, or history. The `vellum-tui` binary is the
 composition root that selects Vellum's macOS adapters and Ratatui lifecycle.
+`draw_in`, `draw_empty_in`, and `draw_comments_in` render only inside an
+assigned `Rect`; their full-frame counterparts remain convenience wrappers for
+the standalone application.
 
 A future workbench can import the library beside Agora or another engine's
 Ratatui library under one executable. It must provide the shared event loop and

@@ -1,7 +1,7 @@
 //! Inert terminal comment list, separate from the source/annotation owners.
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout},
+    layout::{Constraint, Layout, Rect},
     style::{Color, Style},
     text::Line,
     widgets::{Block, Paragraph},
@@ -15,12 +15,25 @@ pub fn draw_comments(
     dirty: bool,
     notice: Option<&str>,
 ) {
+    draw_comments_in(frame, frame.area(), rows, selected, locked, dirty, notice);
+}
+
+/// Renders the comment projection inside an assigned Ratatui pane.
+pub fn draw_comments_in(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    rows: &[CommentRow],
+    selected: usize,
+    locked: bool,
+    dirty: bool,
+    notice: Option<&str>,
+) {
     let [body, status, help] = Layout::vertical([
         Constraint::Min(0),
         Constraint::Length(1),
         Constraint::Length(1),
     ])
-    .areas(frame.area());
+    .areas(area);
     let visible = usize::from(body.height.saturating_sub(2));
     let start = selected.saturating_sub(visible.saturating_sub(1));
     let lines: Vec<_> = rows

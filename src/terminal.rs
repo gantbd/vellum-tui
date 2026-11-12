@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout},
+    layout::{Constraint, Layout, Rect},
     style::{Color, Style},
     widgets::{Block, Paragraph},
 };
@@ -135,12 +135,19 @@ pub fn destination_notice(plan: &DestinationPlan, width: u16) -> String {
 }
 
 pub fn draw(frame: &mut Frame<'_>, view: &EditorFrame, notice: Option<&str>) {
+    draw_in(frame, frame.area(), view, notice);
+}
+
+/// Renders the complete Vellum editor projection inside an assigned pane.
+/// No cell outside `area` is read or written, so a composition root can place
+/// this surface beside another engine under one Ratatui frame and event loop.
+pub fn draw_in(frame: &mut Frame<'_>, area: Rect, view: &EditorFrame, notice: Option<&str>) {
     let [body, status, help] = Layout::vertical([
         Constraint::Min(0),
         Constraint::Length(1),
         Constraint::Length(1),
     ])
-    .areas(frame.area());
+    .areas(area);
     let title = format!(
         "Vellum | document {}/{}{}{} | {} selection(s)",
         view.active + 1,
@@ -190,12 +197,17 @@ pub fn draw(frame: &mut Frame<'_>, view: &EditorFrame, notice: Option<&str>) {
 /// cursor, history, filesystem handle, or process lifecycle and can therefore
 /// be embedded alongside other Ratatui surfaces.
 pub fn draw_empty(frame: &mut Frame<'_>, notice: Option<&str>) {
+    draw_empty_in(frame, frame.area(), notice);
+}
+
+/// Renders the lawful empty-workspace projection inside an assigned pane.
+pub fn draw_empty_in(frame: &mut Frame<'_>, area: Rect, notice: Option<&str>) {
     let [body, status, help] = Layout::vertical([
         Constraint::Min(0),
         Constraint::Length(1),
         Constraint::Length(1),
     ])
-    .areas(frame.area());
+    .areas(area);
     frame.render_widget(
         Paragraph::new("No files are open.\n\nCtrl-O adds a file or directory.")
             .block(Block::bordered().title("Vellum | empty workspace")),
@@ -304,6 +316,42 @@ mod tests {
         terminal.backend_mut().resize(1, 1);
         terminal.autoresize().unwrap();
         terminal.draw(|f| draw(f, &view, None)).unwrap();
+    }
+
+    #[test]
+    fn assigned_pane_is_a_closed_render_boundary() {
+        use ratatui::{layout::Rect, widgets::Paragraph};
+        let mut terminal = Terminal::new(TestBackend::new(80, 8)).unwrap();
+        let view = EditorFrame {
+            lines: vec!["private vellum pane".into()],
+            selection_cells: vec![Vec::new()],
+            selection_count: 1,
+            cursor: None,
+            status: "Ready".into(),
+            active: 0,
+            documents: 1,
+            dirty: false,
+            editing_locked: false,
+        };
+        terminal
+            .draw(|frame| {
+                let left = Rect::new(0, 0, 40, 8);
+                let right = Rect::new(40, 0, 40, 8);
+                frame.render_widget(Paragraph::new("CHRONOS-PANE-SENTINEL"), left);
+                draw_in(frame, right, &view, None);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let left: String = (0..40).map(|x| buffer[(x, 0)].symbol()).collect();
+        let right: String = buffer
+            .content
+            .chunks(80)
+            .flat_map(|row| row[40..].iter().map(|cell| cell.symbol()))
+            .collect();
+        assert!(left.contains("CHRONOS-PANE-SENTINEL"));
+        assert!(!left.contains("Vellum"));
+        assert!(right.contains("Vellum"));
+        assert!(right.contains("private vellum pane"));
     }
 
     #[test]
