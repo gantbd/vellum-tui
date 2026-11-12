@@ -16,6 +16,8 @@ pub use comments::*;
 mod service;
 #[cfg(target_os = "macos")]
 pub use service::*;
+#[cfg(target_os = "macos")]
+pub use vellum_model::EditorFrame;
 
 #[cfg(target_os = "macos")]
 use std::path::{Path, PathBuf};
