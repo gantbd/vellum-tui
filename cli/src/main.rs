@@ -698,8 +698,9 @@ fn run_service_mode(
     };
     use std::{io::stdout, path::PathBuf, time::Duration};
     use vellum_sdk_client::{
+        protocol::{ServiceAccessErrorV1, ServiceControlErrorV1},
         transport::{AuthenticatedUnixConnector, RemoteTransport, TransportLimits, UnixConnector},
-        workspace::{PersistenceProjectionV1, WorkspaceClientV1},
+        workspace::{PersistenceProjectionV1, WorkspaceClientErrorV1, WorkspaceClientV1},
     };
     use vellum_tui::{
         PromptInput, ServiceAction, ServiceEditor, ServiceInput, TextPrompt, draw, draw_empty,
@@ -720,43 +721,105 @@ fn run_service_mode(
     };
     let connector = if let Some(credential) = credential {
         let mut store = vellum_adapter_local_authentication::LocalCredentialStoreV1::default();
-        let record = store
-            .load(&credential)
-            .map_err(|error| std::io::Error::other(format!("credential refused: {error:?}")))?;
+        let record = match store.load(&credential) {
+            Ok(record) => record,
+            Err(error) if headless => {
+                return vellum_headless_failure(
+                    "configuration_refused",
+                    &format!("credential refused: {error:?}"),
+                );
+            }
+            Err(error) => {
+                return Err(std::io::Error::other(format!("credential refused: {error:?}")).into());
+            }
+        };
         let provider =
             vellum_adapter_local_authentication::LocalCredentialClaimProviderV1::new(record);
         ServiceConnector::Authenticated(AuthenticatedUnixConnector::with_provider(socket, provider))
     } else {
         ServiceConnector::Plain(UnixConnector::new(socket))
     };
-    let transport = RemoteTransport::new(connector, TransportLimits::reference())
-        .map_err(|error| std::io::Error::other(format!("transport refused: {error:?}")))?;
-    let mut workspace = WorkspaceClientV1::connect(transport)
-        .map_err(|error| std::io::Error::other(format!("service refused: {error:?}")))?;
+    let transport = match RemoteTransport::new(connector, TransportLimits::reference()) {
+        Ok(transport) => transport,
+        Err(error) if headless => {
+            return vellum_headless_failure(
+                "transport_refused",
+                &format!("transport refused: {error:?}"),
+            );
+        }
+        Err(error) => {
+            return Err(std::io::Error::other(format!("transport refused: {error:?}")).into());
+        }
+    };
+    let mut workspace = match WorkspaceClientV1::connect(transport) {
+        Ok(workspace) => workspace,
+        Err(error) if headless => {
+            return vellum_headless_failure(
+                "connect_refused",
+                &format!("service refused: {error:?}"),
+            );
+        }
+        Err(error) => {
+            return Err(std::io::Error::other(format!("service refused: {error:?}")).into());
+        }
+    };
     if headless {
-        workspace.refresh_inventory().map_err(|error| {
-            std::io::Error::other(format!("workspace inventory refused: {error:?}"))
-        })?;
+        if let Err(error) = workspace.refresh_inventory() {
+            let status = match error {
+                WorkspaceClientErrorV1::Access(ServiceAccessErrorV1::NotSent) => "not_sent",
+                WorkspaceClientErrorV1::Access(ServiceAccessErrorV1::OutcomeUnknown) => {
+                    "outcome_unknown"
+                }
+                WorkspaceClientErrorV1::Access(ServiceAccessErrorV1::Unavailable) => "unavailable",
+                WorkspaceClientErrorV1::Access(ServiceAccessErrorV1::Malformed) => "invalid_reply",
+                WorkspaceClientErrorV1::Access(ServiceAccessErrorV1::Limit) => "limit",
+                WorkspaceClientErrorV1::Refused(_) => "refused",
+                WorkspaceClientErrorV1::Projection(_) => "invalid_projection",
+            };
+            return vellum_headless_failure(
+                status,
+                &format!("workspace inventory refused: {error:?}"),
+            );
+        }
         let projection = workspace.projection();
         let inventory = projection
             .inventory()
-            .ok_or_else(|| std::io::Error::other("workspace inventory absent"))?;
+            .ok_or_else(|| std::io::Error::other("workspace inventory absent"));
+        let inventory = match inventory {
+            Ok(inventory) => inventory,
+            Err(error) => return vellum_headless_failure("invalid_projection", &error.to_string()),
+        };
+        let documents = inventory.documents.len();
+        let roots = inventory.roots.len();
+        if let Err(failure) = workspace.disconnect() {
+            let status = match failure.error() {
+                ServiceControlErrorV1::Access(ServiceAccessErrorV1::NotSent) => {
+                    "disconnect_not_sent"
+                }
+                ServiceControlErrorV1::Access(ServiceAccessErrorV1::OutcomeUnknown) => {
+                    "disconnect_outcome_unknown"
+                }
+                ServiceControlErrorV1::Access(_) | ServiceControlErrorV1::Refused(_) => {
+                    "disconnect_refused"
+                }
+            };
+            return vellum_headless_failure(status, "workspace disconnect was not clean");
+        }
+        let manifest = vellum_tui::CAPABILITIES;
         println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
                 "version": 1,
                 "mode": "headless",
                 "complete": true,
-                "peer": "vellum",
-                "capability": "workspace.inventory.v1",
+                "peer": manifest.peer,
+                "capability": manifest.headless[0],
                 "status": "current",
-                "documents": inventory.documents.len(),
-                "roots": inventory.roots.len(),
+                "documents": documents,
+                "roots": roots,
+                "disconnect": "clean",
             }))?
         );
-        workspace.disconnect().map_err(|failure| {
-            std::io::Error::other(format!("disconnect refused: {:?}", failure.error()))
-        })?;
         return Ok(());
     }
     let editor = ServiceEditor::open(workspace)?;
@@ -894,6 +957,23 @@ fn run_service_mode(
         .disconnect()
         .map_err(|failure| std::io::Error::other(format!("disconnect refused: {failure:?}")))?;
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn vellum_headless_failure(status: &str, message: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let manifest = vellum_tui::CAPABILITIES;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "version": 1,
+            "mode": "headless",
+            "complete": false,
+            "peer": manifest.peer,
+            "capability": manifest.headless[0],
+            "status": status,
+        }))?
+    );
+    Err(std::io::Error::other(message).into())
 }
 
 #[cfg(not(target_os = "macos"))]

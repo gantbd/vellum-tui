@@ -64,6 +64,7 @@ assert report == {
     "version": 1, "mode": "headless", "complete": True,
     "peer": "vellum", "capability": "workspace.inventory.v1",
     "status": "current", "documents": 1, "roots": 1,
+    "disconnect": "clean",
 }
 '
 
