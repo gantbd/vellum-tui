@@ -1,3 +1,4 @@
+//! Standalone interactive and headless Vellum application.
 #[cfg(target_os = "macos")]
 mod standalone;
 

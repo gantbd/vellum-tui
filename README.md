@@ -8,17 +8,17 @@ authority.
 The executable may start empty, from files, from directories, or from a mix:
 
 ```sh
-cargo run --locked --
-cargo run --locked -- README.md src
+cargo run -p vellum-tui-cli --bin vellum-tui --locked --
+cargo run -p vellum-tui-cli --bin vellum-tui --locked -- README.md src
 ```
 
 It can instead project a running Vellum service without taking source or
 persistence authority:
 
 ```sh
-cargo run --locked -- --service /path/to/vellum.sock
-cargo run --locked -- --service /path/to/vellum.sock --credential /path/to/credential
-cargo run --locked -- headless --service /path/to/vellum.sock
+cargo run -p vellum-tui-cli --bin vellum-tui --locked -- --service /path/to/vellum.sock
+cargo run -p vellum-tui-cli --bin vellum-tui --locked -- --service /path/to/vellum.sock --credential /path/to/credential
+cargo run -p vellum-tui-cli --bin vellum-tui --locked -- headless --service /path/to/vellum.sock
 ```
 
 In the empty state, `Ctrl-O` adds a file or directory and `Ctrl-Q` exits. In an
@@ -37,10 +37,10 @@ opening an interactive terminal.
 
 ## Composition boundary
 
-The `vellum_tui` library owns terminal projection, key translation, bounded
+The `vellum_tui` library package owns terminal projection, key translation, bounded
 prompts, and empty-state rendering. It owns no terminal lifecycle, filesystem
-authority, document source, or history. The `vellum-tui` binary is the
-composition root that selects Vellum's macOS adapters and Ratatui lifecycle.
+authority, document source, or history. The separate `vellum-tui-cli` package
+owns the `vellum-tui` binary and selects Vellum's macOS adapters and Ratatui lifecycle.
 `draw_in`, `draw_empty_in`, and `draw_comments_in` render only inside an
 assigned `Rect`; their full-frame counterparts remain convenience wrappers for
 the standalone application.
@@ -62,9 +62,8 @@ parent/
   vellum-tui/
 ```
 
-Build the reusable presentation with `cargo test --locked --offline`. Qualify
-the concrete macOS standalone composition with
-`cargo test --all-targets --features standalone-macos --locked --offline`.
+Build the reusable presentation and separate standalone CLI with
+`cargo test --workspace --all-targets --locked --offline`.
 GitHub source installation will replace sibling paths with exact Vellum Git
 revisions and is not claimed yet. Nothing is published to crates.io.
 

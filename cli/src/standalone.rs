@@ -1,4 +1,4 @@
-//! Concrete local reference composition selected by the standalone binary.
+//! Concrete local reference composition selected by the standalone CLI.
 
 use std::path::{Path, PathBuf};
 

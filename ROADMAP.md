@@ -1,9 +1,9 @@
 # Vellum TUI repository roadmap
 
 `vellum-tui` remains a reusable editor presentation library. The standalone
-Vellum CLI/application and Workbench are separate composition roots.
+`vellum-tui-cli` package and Workbench are separate composition roots.
 
-The current standalone feature now has an explicit service-backed headless
+The standalone CLI package now has an explicit service-backed headless
 inventory command. It uses the workspace client directly, constructs no
 terminal or editor cursor state, and passes in the real-daemon journey before
 the reusable editor controller opens, edits, saves, and disconnects.

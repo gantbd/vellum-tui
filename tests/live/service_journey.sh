@@ -54,7 +54,7 @@ if [ "$attempt" -eq 100 ]; then
   exit 1
 fi
 
-cargo build --manifest-path "$repo/Cargo.toml" --features standalone-macos \
+cargo build --manifest-path "$repo/Cargo.toml" -p vellum-tui-cli \
   --bin vellum-tui --locked --offline --target-dir "$tui_target"
 headless_status=$("$tui" headless --service "$socket")
 printf '%s\n' "$headless_status" | grep -Fq \

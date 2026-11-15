@@ -25,6 +25,24 @@ fn unpublished_peer_is_bound_to_the_recovered_and_current_sources() {
     assert!(manifest.contains("publish = false"));
     assert!(manifest.contains("path = \"../vellum/host/vellum-editor\""));
     assert!(manifest.contains("vellum-sdk-client"));
+    for forbidden in [
+        "vellum-clipboard-macos",
+        "vellum-adapter-local-fs",
+        "vellum-adapter-local-authentication",
+        "vellum-engine",
+    ] {
+        let dependencies = manifest
+            .split("[dev-dependencies]")
+            .next()
+            .expect("normal dependency section");
+        assert!(
+            !dependencies.contains(forbidden),
+            "library imports {forbidden}"
+        );
+    }
+    let cli_manifest = fs::read_to_string(root.join("cli/Cargo.toml")).expect("CLI manifest");
+    assert!(cli_manifest.contains("name = \"vellum-tui-cli\""));
+    assert!(cli_manifest.contains("vellum-tui = { path = \"..\" }"));
     for forbidden in ["vellum-client =", "vellum-transport =", "vellum-protocol ="] {
         assert!(
             !manifest.contains(forbidden),
@@ -116,7 +134,7 @@ fn live_service_journey_uses_only_the_peer_sdk_and_real_daemon_binary() {
 #[test]
 fn standalone_cli_has_explicit_headless_service_mode() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let entry = fs::read_to_string(root.join("src/main.rs")).expect("standalone entry point");
+    let entry = fs::read_to_string(root.join("cli/src/main.rs")).expect("standalone entry point");
     assert!(entry.contains("headless --service SOCKET"));
     assert!(entry.contains("if headless"));
     assert!(entry.contains("refresh_inventory"));
@@ -126,4 +144,5 @@ fn standalone_cli_has_explicit_headless_service_mode() {
     let presentation = fs::read_to_string(root.join("src/lib.rs")).expect("presentation library");
     assert!(!presentation.contains("args_os"));
     assert!(!presentation.contains("ratatui::run"));
+    assert!(!root.join("src/main.rs").exists());
 }

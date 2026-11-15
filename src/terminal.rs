@@ -230,7 +230,6 @@ mod tests {
     use super::*;
     use ratatui::{Terminal, backend::TestBackend};
 
-    #[cfg(feature = "standalone-macos")]
     fn test_reference_session_config() -> vellum_editor::ReferenceSessionConfig {
         use vellum_adapter_local_fs::{FilesystemLimits, LocalFilesystemFactory};
         vellum_editor::reference_profile(
@@ -378,7 +377,6 @@ mod tests {
         assert!(right.contains("private vellum pane"));
     }
 
-    #[cfg(feature = "standalone-macos")]
     #[test]
     fn actual_key_path_edits_history_and_saves_through_the_shared_host() {
         use std::{

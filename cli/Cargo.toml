@@ -1,0 +1,30 @@
+[package]
+name = "vellum-tui-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "Standalone interactive and headless CLI for vellum-tui"
+
+[[bin]]
+name = "vellum-tui"
+path = "src/main.rs"
+doc = false
+
+[target.'cfg(target_os = "macos")'.dependencies]
+vellum-tui = { path = ".." }
+vellum-clipboard-macos = { version = "=0.1.0", path = "../../vellum/applications/vellum-clipboard-macos" }
+vellum-adapter-local-fs = { version = "=0.1.0", path = "../../vellum/adapters/local-fs" }
+vellum-adapter-annotation-json = { version = "=0.1.0", path = "../../vellum/adapters/annotation-json" }
+vellum-adapter-unicode-icu = { version = "=0.1.0", path = "../../vellum/adapters/unicode-icu" }
+vellum-engine = { version = "=0.1.0", path = "../../vellum/engine/vellum-engine" }
+vellum-editor = { version = "=0.1.0", path = "../../vellum/host/vellum-editor", features = ["native-unicode"] }
+vellum-sdk-client = { version = "=0.1.0", path = "../../vellum/sdk/client" }
+vellum-adapter-local-authentication = { version = "=0.1.0", path = "../../vellum/adapters/local-authentication" }
+ratatui = { version = "=0.30.2", default-features = false, features = ["crossterm"] }
+crossterm = "=0.29.0"
+
+[lints]
+workspace = true

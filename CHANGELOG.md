@@ -10,3 +10,7 @@
 - Added an explicit service-backed headless inventory path that reuses the
   workspace client without constructing terminal, focus, selection, or cursor
   state, and qualified it alongside the real-daemon editor journey.
+- Extracted the standalone `vellum-tui` executable into the sibling
+  `vellum-tui-cli` package, leaving the root package as the reusable
+  presentation component and keeping concrete platform adapters at the CLI
+  composition boundary.
