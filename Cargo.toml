@@ -29,16 +29,29 @@ name = "vellum_tui"
 [[bin]]
 name = "vellum-tui"
 path = "src/main.rs"
+required-features = ["standalone-macos"]
+
+[features]
+default = []
+standalone-macos = [
+    "dep:vellum-clipboard-macos",
+    "dep:vellum-adapter-local-fs",
+    "dep:vellum-adapter-annotation-json",
+    "dep:vellum-adapter-unicode-icu",
+    "dep:vellum-engine",
+    "dep:vellum-adapter-local-authentication",
+    "vellum-editor/native-unicode",
+]
 
 [dependencies]
-vellum-adapter-clipboard-macos = { version = "=0.1.0", path = "../vellum/adapters/clipboard-macos" }
-vellum-adapter-local-fs = { version = "=0.1.0", path = "../vellum/adapters/local-fs" }
-vellum-adapter-annotation-json = { version = "=0.1.0", path = "../vellum/adapters/annotation-json" }
-vellum-adapter-unicode-icu = { version = "=0.1.0", path = "../vellum/adapters/unicode-icu" }
-vellum-model = { package = "vellum-editor", version = "=0.1.0", path = "../vellum/host/vellum-editor", features = ["native-unicode"] }
-vellum-engine = { version = "=0.1.0", path = "../vellum/engine/vellum-engine" }
+vellum-clipboard-macos = { version = "=0.1.0", path = "../vellum/applications/vellum-clipboard-macos", optional = true }
+vellum-adapter-local-fs = { version = "=0.1.0", path = "../vellum/adapters/local-fs", optional = true }
+vellum-adapter-annotation-json = { version = "=0.1.0", path = "../vellum/adapters/annotation-json", optional = true }
+vellum-adapter-unicode-icu = { version = "=0.1.0", path = "../vellum/adapters/unicode-icu", optional = true }
+vellum-editor = { version = "=0.1.0", path = "../vellum/host/vellum-editor" }
+vellum-engine = { version = "=0.1.0", path = "../vellum/engine/vellum-engine", optional = true }
 vellum-sdk-client = { version = "=0.1.0", path = "../vellum/sdk/client" }
-vellum-adapter-local-authentication = { version = "=0.1.0", path = "../vellum/adapters/local-authentication" }
+vellum-adapter-local-authentication = { version = "=0.1.0", path = "../vellum/adapters/local-authentication", optional = true }
 ratatui = { version = "=0.30.2", default-features = false, features = ["crossterm"] }
 crossterm = "=0.29.0"
 unicode-segmentation = "=1.13.3"

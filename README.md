@@ -18,6 +18,7 @@ persistence authority:
 ```sh
 cargo run --locked -- --service /path/to/vellum.sock
 cargo run --locked -- --service /path/to/vellum.sock --credential /path/to/credential
+cargo run --locked -- headless --service /path/to/vellum.sock
 ```
 
 In the empty state, `Ctrl-O` adds a file or directory and `Ctrl-Q` exits. In an
@@ -61,9 +62,11 @@ parent/
   vellum-tui/
 ```
 
-Build with `cargo test --locked --offline`. GitHub source installation will
-replace those paths with exact Vellum Git revisions and is not claimed yet.
-Nothing is published to crates.io.
+Build the reusable presentation with `cargo test --locked --offline`. Qualify
+the concrete macOS standalone composition with
+`cargo test --all-targets --features standalone-macos --locked --offline`.
+GitHub source installation will replace sibling paths with exact Vellum Git
+revisions and is not claimed yet. Nothing is published to crates.io.
 
 ## Platform and nonclaims
 

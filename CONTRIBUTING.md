@@ -10,8 +10,9 @@ Required local gate:
 ```sh
 cargo fmt --check
 cargo test --locked --offline
-cargo clippy --all-targets --locked --offline -- -D warnings
-RUSTDOCFLAGS='-D warnings' cargo doc --no-deps --locked --offline
+cargo test --all-targets --features standalone-macos --locked --offline
+cargo clippy --all-targets --features standalone-macos --locked --offline -- -D warnings
+RUSTDOCFLAGS='-D warnings' cargo doc --no-deps --features standalone-macos --locked --offline
 ```
 
 Add behavioral or model evidence for state transitions and fault boundaries.

@@ -1,5 +1,5 @@
 use unicode_width::UnicodeWidthStr;
-use vellum_model::EditorFrame;
+use vellum_editor::EditorFrame;
 use vellum_sdk_client::{
     protocol::{ServicePort, WorkspaceDocumentIdV1},
     workspace::{
@@ -41,17 +41,17 @@ pub fn translate_service_input(input: crate::Input) -> ServiceInput {
         crate::Input::CancelQuit => ServiceInput::CancelQuit,
         crate::Input::Open => ServiceInput::Open,
         crate::Input::Edit(action) => match action {
-            vellum_model::Action::Insert(text) => ServiceInput::Apply(ServiceAction::Insert(text)),
-            vellum_model::Action::Backspace => ServiceInput::Apply(ServiceAction::Backspace),
-            vellum_model::Action::Delete => ServiceInput::Apply(ServiceAction::Delete),
-            vellum_model::Action::Left => ServiceInput::Apply(ServiceAction::Left),
-            vellum_model::Action::Right => ServiceInput::Apply(ServiceAction::Right),
-            vellum_model::Action::Up => ServiceInput::Apply(ServiceAction::Up),
-            vellum_model::Action::Down => ServiceInput::Apply(ServiceAction::Down),
-            vellum_model::Action::Home => ServiceInput::Apply(ServiceAction::Home),
-            vellum_model::Action::End => ServiceInput::Apply(ServiceAction::End),
-            vellum_model::Action::Save => ServiceInput::Apply(ServiceAction::Save),
-            vellum_model::Action::NextDocument => ServiceInput::Apply(ServiceAction::NextDocument),
+            vellum_editor::Action::Insert(text) => ServiceInput::Apply(ServiceAction::Insert(text)),
+            vellum_editor::Action::Backspace => ServiceInput::Apply(ServiceAction::Backspace),
+            vellum_editor::Action::Delete => ServiceInput::Apply(ServiceAction::Delete),
+            vellum_editor::Action::Left => ServiceInput::Apply(ServiceAction::Left),
+            vellum_editor::Action::Right => ServiceInput::Apply(ServiceAction::Right),
+            vellum_editor::Action::Up => ServiceInput::Apply(ServiceAction::Up),
+            vellum_editor::Action::Down => ServiceInput::Apply(ServiceAction::Down),
+            vellum_editor::Action::Home => ServiceInput::Apply(ServiceAction::Home),
+            vellum_editor::Action::End => ServiceInput::Apply(ServiceAction::End),
+            vellum_editor::Action::Save => ServiceInput::Apply(ServiceAction::Save),
+            vellum_editor::Action::NextDocument => ServiceInput::Apply(ServiceAction::NextDocument),
             _ => ServiceInput::Unsupported,
         },
         _ => ServiceInput::Unsupported,
@@ -410,11 +410,13 @@ mod tests {
     #[test]
     fn service_input_mapping_is_closed_over_the_supported_controller_surface() {
         assert_eq!(
-            translate_service_input(crate::Input::Edit(vellum_model::Action::Insert("x".into()))),
+            translate_service_input(crate::Input::Edit(vellum_editor::Action::Insert(
+                "x".into()
+            ))),
             ServiceInput::Apply(ServiceAction::Insert("x".into()))
         );
         assert_eq!(
-            translate_service_input(crate::Input::Edit(vellum_model::Action::Undo)),
+            translate_service_input(crate::Input::Edit(vellum_editor::Action::Undo)),
             ServiceInput::Unsupported
         );
         assert_eq!(

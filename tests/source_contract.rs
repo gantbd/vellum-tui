@@ -102,6 +102,7 @@ fn live_service_journey_uses_only_the_peer_sdk_and_real_daemon_binary() {
     assert!(journey.contains("--package vellum-daemon"));
     assert!(journey.contains("--allow-edit --allow-save"));
     assert!(journey.contains("--test live_service"));
+    assert!(journey.contains("headless --service"));
     assert!(journey.contains("--shutdown"));
     assert!(!journey.contains("cargo publish"));
     assert!(!journey.contains("git push"));
@@ -110,4 +111,19 @@ fn live_service_journey_uses_only_the_peer_sdk_and_real_daemon_binary() {
     assert!(test.contains("vellum_sdk_client"));
     assert!(test.contains("ServiceEditor"));
     assert!(!test.contains("vellum_daemon"));
+}
+
+#[test]
+fn standalone_cli_has_explicit_headless_service_mode() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let entry = fs::read_to_string(root.join("src/main.rs")).expect("standalone entry point");
+    assert!(entry.contains("headless --service SOCKET"));
+    assert!(entry.contains("if headless"));
+    assert!(entry.contains("refresh_inventory"));
+    assert!(entry.contains("inventory_freshness"));
+    assert!(entry.contains("ratatui::run"));
+
+    let presentation = fs::read_to_string(root.join("src/lib.rs")).expect("presentation library");
+    assert!(!presentation.contains("args_os"));
+    assert!(!presentation.contains("ratatui::run"));
 }

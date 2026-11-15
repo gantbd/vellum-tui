@@ -5,11 +5,19 @@ use ratatui::{
     style::{Color, Style},
     widgets::{Block, Paragraph},
 };
-use vellum_adapter_clipboard_macos::Operation;
-use vellum_model::{Action, DestinationPlan, EditorFrame, Movement};
+use vellum_editor::{Action, DestinationPlan, EditorFrame, Movement};
+
+/// Presentation intent only. A standalone or composite host chooses whether
+/// and how to interpret it through a concrete clipboard adapter.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClipboardAction {
+    Copy,
+    Cut,
+    Paste,
+}
 
 pub enum Input {
-    Clipboard(Option<Operation>),
+    Clipboard(Option<ClipboardAction>),
     Edit(Action),
     Quit,
     CancelQuit,
@@ -37,9 +45,9 @@ pub fn translate_key(key: KeyEvent) -> Input {
         }
         return match key.code {
             KeyCode::Char('q') => Input::Quit,
-            KeyCode::Char('c') => Input::Clipboard(Some(Operation::Copy)),
-            KeyCode::Char('x') => Input::Clipboard(Some(Operation::Cut)),
-            KeyCode::Char('v') => Input::Clipboard(Some(Operation::Paste)),
+            KeyCode::Char('c') => Input::Clipboard(Some(ClipboardAction::Copy)),
+            KeyCode::Char('x') => Input::Clipboard(Some(ClipboardAction::Cut)),
+            KeyCode::Char('v') => Input::Clipboard(Some(ClipboardAction::Paste)),
             KeyCode::Char('s') => Input::Edit(Action::Save),
             KeyCode::Char('z') => Input::Edit(Action::Undo),
             KeyCode::Char('y') => Input::Edit(Action::Redo),
@@ -221,12 +229,28 @@ pub fn draw_empty_in(frame: &mut Frame<'_>, area: Rect, notice: Option<&str>) {
 mod tests {
     use super::*;
     use ratatui::{Terminal, backend::TestBackend};
+
+    #[cfg(feature = "standalone-macos")]
+    fn test_reference_session_config() -> vellum_editor::ReferenceSessionConfig {
+        use vellum_adapter_local_fs::{FilesystemLimits, LocalFilesystemFactory};
+        vellum_editor::reference_profile(
+            LocalFilesystemFactory::new(FilesystemLimits {
+                max_resources: 16,
+                max_bytes: 65_536,
+                max_stage_attempts: 16,
+                max_metadata_bytes: 65_536,
+            })
+            .erase(),
+            Box::new(vellum_adapter_annotation_json::JsonAnnotationCodec),
+        )
+    }
+
     #[test]
     fn keymaps_never_translate_release_or_control_chords_to_source_text() {
         for (key, expected) in [
-            ('c', Operation::Copy),
-            ('x', Operation::Cut),
-            ('v', Operation::Paste),
+            ('c', ClipboardAction::Copy),
+            ('x', ClipboardAction::Cut),
+            ('v', ClipboardAction::Paste),
         ] {
             assert!(
                 matches!(translate_key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::CONTROL)), Input::Clipboard(Some(operation)) if operation == expected)
@@ -354,13 +378,14 @@ mod tests {
         assert!(right.contains("private vellum pane"));
     }
 
+    #[cfg(feature = "standalone-macos")]
     #[test]
     fn actual_key_path_edits_history_and_saves_through_the_shared_host() {
         use std::{
             fs,
             sync::atomic::{AtomicU64, Ordering},
         };
-        use vellum_model::Editor;
+        use vellum_editor::Editor;
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let directory = loop {
             let path = std::env::temp_dir().join(format!(
@@ -376,15 +401,12 @@ mod tests {
         };
         let path = directory.join("source");
         fs::write(&path, b"A\r\n").unwrap();
-        let mut editor = Editor::open(
-            std::slice::from_ref(&path),
-            crate::reference_session_config(),
-        )
-        .unwrap();
+        let mut editor =
+            Editor::open(std::slice::from_ref(&path), test_reference_session_config()).unwrap();
         editor
             .enable_native_unicode(
                 vellum_adapter_unicode_icu::IcuFactory::reference(),
-                vellum_model::NativeUnicodeProfile::reference(),
+                vellum_editor::NativeUnicodeProfile::reference(),
             )
             .unwrap();
         for key in [

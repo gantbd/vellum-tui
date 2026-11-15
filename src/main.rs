@@ -1,18 +1,22 @@
 #[cfg(target_os = "macos")]
+mod standalone;
+
+#[cfg(target_os = "macos")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use crossterm::{
         event::{self, DisableBracketedPaste, EnableBracketedPaste, Event},
         execute,
     };
+    use standalone::plan_workspace_roots;
     use std::{io::stdout, path::PathBuf};
-    use vellum_adapter_clipboard_macos::{DesktopAccess, IntegrationError, ReferenceClipboard};
-    use vellum_model::{
+    use vellum_clipboard_macos::{DesktopAccess, IntegrationError, Operation, ReferenceClipboard};
+    use vellum_editor::{
         Action, CommentDraft, CommentHandle, CommentHistoryDirection, CommentPointProfile,
         DestinationPlan, Editor, EditorError, SearchDirection,
     };
     use vellum_tui::{
-        Input, PromptInput, TextPrompt, destination_notice, draw, draw_comments,
-        plan_workspace_roots, translate_key,
+        ClipboardAction, Input, PromptInput, TextPrompt, destination_notice, draw, draw_comments,
+        translate_key,
     };
     enum Entry {
         Open,
@@ -26,7 +30,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     if args.first().is_some_and(|argument| argument == "--service") {
-        return run_service_mode(&args);
+        return run_service_mode(&args, false);
+    }
+    if args.first().is_some_and(|argument| argument == "headless")
+        && args.get(1).is_some_and(|argument| argument == "--service")
+    {
+        return run_service_mode(&args[1..], true);
     }
     if args.len() == 1 && args[0] == "--help" {
         println!(
@@ -37,6 +46,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         println!(
             "Service mode: vellum-tui --service SOCKET [--credential CREDENTIAL]. It uses the shared workspace client, polls revision notifications, and supports witnessed text editing, save, document cycling, and explicit 'f PATH' / 'd PATH' admission through Ctrl-O."
+        );
+        println!(
+            "Headless status: vellum-tui headless --service SOCKET [--credential CREDENTIAL]. It reads the bounded workspace inventory through the same client without constructing terminal, focus, selection, or cursor state."
         );
         println!(
             "F2 Save As; F7 export copy. Existing destination only: enter its literal path, then Y confirms overwrite; Esc cancels. Save As retains at most 16 prior binding entries in this reference application."
@@ -64,13 +76,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     else {
         return Ok(());
     };
-    let mut editor = Editor::open(&paths, vellum_tui::reference_session_config())?;
+    let mut editor = Editor::open(&paths, standalone::reference_session_config())?;
     editor.enable_native_unicode(
         vellum_adapter_unicode_icu::IcuFactory::reference(),
-        vellum_model::NativeUnicodeProfile::reference(),
+        vellum_editor::NativeUnicodeProfile::reference(),
     )?;
     let mut clipboard = ReferenceClipboard::new(&mut editor)?;
-    editor.enable_comment_files(vellum_model::CommentFileLimits::reference())?;
+    editor.enable_comment_files(vellum_editor::CommentFileLimits::reference())?;
     ratatui::run(|terminal| -> Result<(), Box<dyn std::error::Error>> {
         struct PasteGuard;
         impl Drop for PasteGuard {
@@ -84,12 +96,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut notice: Option<String> = None;
         let mut opening: Option<(TextPrompt, Entry)> = None;
         let mut destination: Option<DestinationPlan> = None;
-        let mut comment_destination: Option<vellum_model::CommentFilePlan> = None;
+        let mut comment_destination: Option<vellum_editor::CommentFilePlan> = None;
         let mut show_comments = false;
         let mut selected_comment = 0usize;
         loop {
-            if notice.is_none()
-                && clipboard.stage() != vellum_adapter_clipboard_macos::ClipboardStage::Idle
+            if notice.is_none() && clipboard.stage() != vellum_clipboard_macos::ClipboardStage::Idle
             {
                 notice = Some("Clipboard pending; F12 retries delivery only. Discard cannot erase unresolved work.".into());
             }
@@ -444,9 +455,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         };
                         notice = Some(
                             match operation {
-                                Some(operation) => {
-                                    clipboard.perform(&mut editor, operation, access)
-                                }
+                                Some(operation) => clipboard.perform(
+                                    &mut editor,
+                                    match operation {
+                                        ClipboardAction::Copy => Operation::Copy,
+                                        ClipboardAction::Cut => Operation::Cut,
+                                        ClipboardAction::Paste => Operation::Paste,
+                                    },
+                                    access,
+                                ),
                                 None => clipboard.resume(&mut editor, access),
                             }
                             .map_or_else(|e| e.to_string(), |r| r.notice()),
@@ -569,7 +586,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(target_os = "macos")]
 fn choose_initial_paths() -> Result<Option<Vec<std::path::PathBuf>>, Box<dyn std::error::Error>> {
     use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
-    use vellum_tui::{PromptInput, TextPrompt, draw_empty, plan_workspace_roots};
+    use standalone::plan_workspace_roots;
+    use vellum_tui::{PromptInput, TextPrompt, draw_empty};
 
     ratatui::run(|terminal| {
         let mut prompt: Option<TextPrompt> = None;
@@ -653,7 +671,10 @@ impl vellum_sdk_client::transport::FrameExchange for ServiceConnector {
 }
 
 #[cfg(target_os = "macos")]
-fn run_service_mode(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
+fn run_service_mode(
+    args: &[std::ffi::OsString],
+    headless: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     use crossterm::{
         event::{self, DisableBracketedPaste, EnableBracketedPaste, Event},
         execute,
@@ -675,7 +696,7 @@ fn run_service_mode(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::erro
         }
         _ => {
             return Err(std::io::Error::other(
-                "usage: vellum-tui --service SOCKET [--credential CREDENTIAL]",
+                "usage: vellum-tui [headless] --service SOCKET [--credential CREDENTIAL]",
             )
             .into());
         }
@@ -693,8 +714,27 @@ fn run_service_mode(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::erro
     };
     let transport = RemoteTransport::new(connector, TransportLimits::reference())
         .map_err(|error| std::io::Error::other(format!("transport refused: {error:?}")))?;
-    let workspace = WorkspaceClientV1::connect(transport)
+    let mut workspace = WorkspaceClientV1::connect(transport)
         .map_err(|error| std::io::Error::other(format!("service refused: {error:?}")))?;
+    if headless {
+        workspace.refresh_inventory().map_err(|error| {
+            std::io::Error::other(format!("workspace inventory refused: {error:?}"))
+        })?;
+        let projection = workspace.projection();
+        let inventory = projection
+            .inventory()
+            .ok_or_else(|| std::io::Error::other("workspace inventory absent"))?;
+        println!(
+            "Vellum workspace documents={} roots={} freshness={:?}",
+            inventory.documents.len(),
+            inventory.roots.len(),
+            projection.inventory_freshness()
+        );
+        workspace.disconnect().map_err(|failure| {
+            std::io::Error::other(format!("disconnect refused: {:?}", failure.error()))
+        })?;
+        return Ok(());
+    }
     let editor = ServiceEditor::open(workspace)?;
     let editor = ratatui::run(
         |terminal| -> Result<ServiceEditor<_>, Box<dyn std::error::Error>> {

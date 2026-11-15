@@ -1165,9 +1165,6 @@ dependencies = [
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
- "vellum-editor",
- "vellum-engine",
- "vellum-session",
 ]
 
 [[package]]
@@ -1210,6 +1207,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "vellum-clipboard-macos"
+version = "0.1.0"
+dependencies = [
+ "objc2",
+ "vellum-adapter-clipboard-macos",
+ "vellum-editor",
+ "vellum-session",
+]
+
+[[package]]
 name = "vellum-editor"
 version = "0.1.0"
 dependencies = [
@@ -1220,6 +1227,7 @@ dependencies = [
  "vellum-engine",
  "vellum-host",
  "vellum-session",
+ "vellum-workspace",
 ]
 
 [[package]]
@@ -1280,10 +1288,10 @@ dependencies = [
  "unicode-segmentation",
  "unicode-width",
  "vellum-adapter-annotation-json",
- "vellum-adapter-clipboard-macos",
  "vellum-adapter-local-authentication",
  "vellum-adapter-local-fs",
  "vellum-adapter-unicode-icu",
+ "vellum-clipboard-macos",
  "vellum-editor",
  "vellum-engine",
  "vellum-sdk-client",
@@ -1295,6 +1303,15 @@ version = "0.1.0"
 dependencies = [
  "keystone-codec",
  "vellum-protocol",
+]
+
+[[package]]
+name = "vellum-workspace"
+version = "0.1.0"
+dependencies = [
+ "vellum-engine",
+ "vellum-host",
+ "vellum-session",
 ]
 
 [[package]]

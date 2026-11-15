@@ -11,6 +11,8 @@ source_file="$scratch/source.txt"
 expected_file="$scratch/expected.txt"
 daemon_target="$scratch/daemon-target"
 daemon="$daemon_target/debug/vellum-daemon"
+tui_target="$scratch/tui-target"
+tui="$tui_target/debug/vellum-tui"
 log="$scratch/daemon.log"
 pid=
 
@@ -52,6 +54,16 @@ if [ "$attempt" -eq 100 ]; then
   exit 1
 fi
 
+cargo build --manifest-path "$repo/Cargo.toml" --features standalone-macos \
+  --bin vellum-tui --locked --offline --target-dir "$tui_target"
+headless_status=$("$tui" headless --service "$socket")
+printf '%s\n' "$headless_status" | grep -Fq \
+  'Vellum workspace documents=1 roots=1 freshness=Current' || {
+  printf '%s\n' "$headless_status" >&2
+  echo 'FAIL: headless service status did not report the bounded inventory' >&2
+  exit 1
+}
+
 VELLUM_LIVE_SOCKET="$socket" cargo test --manifest-path "$repo/Cargo.toml" \
   --test live_service --locked --offline -- --ignored --nocapture
 cmp -s "$source_file" "$expected_file" || {
@@ -61,4 +73,4 @@ cmp -s "$source_file" "$expected_file" || {
 "$daemon" --shutdown "$control" >/dev/null
 wait "$pid"
 pid=
-echo 'PASS: real daemon -> TUI controller open/edit/save/disconnect'
+echo 'PASS: real daemon -> headless status + TUI controller open/edit/save/disconnect'

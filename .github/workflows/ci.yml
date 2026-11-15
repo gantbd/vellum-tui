@@ -46,6 +46,7 @@ jobs:
           printf '[url "file://${{ github.workspace }}/keystone"]\n\tinsteadOf = https://github.com/gantbd/keystone\n' > "$GIT_CONFIG_GLOBAL"
           cargo fmt --check
           cargo test --locked
-          cargo clippy --all-targets --locked -- -D warnings
-          RUSTDOCFLAGS='-D warnings' cargo doc --no-deps --locked
+          cargo test --all-targets --features standalone-macos --locked
+          cargo clippy --all-targets --features standalone-macos --locked -- -D warnings
+          RUSTDOCFLAGS='-D warnings' cargo doc --no-deps --features standalone-macos --locked
           ./tests/live/service_journey.sh
