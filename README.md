@@ -19,11 +19,14 @@ persistence authority:
 cargo run -p vellum-tui-cli --bin vellum-tui --locked -- --service /path/to/vellum.sock
 cargo run -p vellum-tui-cli --bin vellum-tui --locked -- --service /path/to/vellum.sock --credential /path/to/credential
 cargo run -p vellum-tui-cli --bin vellum-tui --locked -- headless --service /path/to/vellum.sock
+cargo run -p vellum-tui-cli --bin vellum-tui --locked -- capabilities
 ```
 
 Headless emits a versioned `workspace.inventory.v1` JSON observation with
 current bounded document/root counts and constructs no editor, focus,
 selection, or cursor state.
+The `capabilities` command prints Vellum's peer-owned composition manifest
+without connecting; it does not grant edit or save authority.
 
 In the empty state, `Ctrl-O` adds a file or directory and `Ctrl-Q` exits. In an
 active editor, `Ctrl-O` adds another bounded root. Directory discovery is

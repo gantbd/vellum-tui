@@ -30,6 +30,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let args: Vec<_> = std::env::args_os().skip(1).collect();
+    if args.len() == 1 && args[0] == "capabilities" {
+        let manifest = vellum_tui::CAPABILITIES;
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "schema": manifest.schema,
+                "peer": manifest.peer,
+                "interactive": manifest.interactive,
+                "headless": manifest.headless,
+            }))?
+        );
+        return Ok(());
+    }
     if args.first().is_some_and(|argument| argument == "--service") {
         return run_service_mode(&args, false);
     }
@@ -50,6 +63,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         println!(
             "Headless status: vellum-tui headless --service SOCKET [--credential CREDENTIAL]. It reads the bounded workspace inventory through the same client without constructing terminal, focus, selection, or cursor state."
+        );
+        println!(
+            "Capability discovery: vellum-tui capabilities. It prints the peer-owned presentation manifest without connecting or acquiring authority."
         );
         println!(
             "F2 Save As; F7 export copy. Existing destination only: enter its literal path, then Y confirms overwrite; Esc cancels. Save As retains at most 16 prior binding entries in this reference application."
