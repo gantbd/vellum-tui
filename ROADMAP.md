@@ -8,6 +8,9 @@ inventory command with a versioned `workspace.inventory.v1` JSON result. It
 uses the workspace client directly, constructs no
 terminal or editor cursor state, and passes in the real-daemon journey before
 the reusable editor controller opens, edits, saves, and disconnects.
+The peer publishes a closed interactive/headless presentation capability
+manifest for pre-connection host negotiation. It conveys no edit, save, source,
+or persistence authority.
 
 - Keep argument parsing, terminal lifecycle, daemon startup, adapter selection,
   global shortcuts, and process exit outside the reusable component.
