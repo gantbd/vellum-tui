@@ -46,9 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.first().is_some_and(|argument| argument == "--service") {
         return run_service_mode(&args, false);
     }
-    if args.first().is_some_and(|argument| argument == "headless")
-        && args.get(1).is_some_and(|argument| argument == "--service")
-    {
+    if args.first().is_some_and(|argument| argument == "headless") {
         return run_service_mode(&args[1..], true);
     }
     if args.len() == 1 && args[0] == "--help" {
@@ -711,6 +709,12 @@ fn run_service_mode(
         [service, socket] if service == "--service" => (PathBuf::from(socket), None),
         [service, socket, flag, credential] if service == "--service" && flag == "--credential" => {
             (PathBuf::from(socket), Some(PathBuf::from(credential)))
+        }
+        _ if headless => {
+            return vellum_headless_failure(
+                "configuration_refused",
+                "usage: vellum-tui headless --service SOCKET [--credential CREDENTIAL]",
+            );
         }
         _ => {
             return Err(std::io::Error::other(

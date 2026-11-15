@@ -12,7 +12,7 @@ The peer publishes a closed interactive/headless presentation capability
 manifest for pre-connection host negotiation. It conveys no edit, save, source,
 or persistence authority.
 Standalone headless failures retain the versioned envelope and distinguish
-configuration/transport/connect refusal, not-sent access, outcome-unknown
+syntax/credential/transport/connect refusal, not-sent access, outcome-unknown
 delivery, semantic refusal, invalid projection, and uncertain disconnect.
 
 - Keep argument parsing, terminal lifecycle, daemon startup, adapter selection,
