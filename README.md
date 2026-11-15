@@ -21,6 +21,10 @@ cargo run -p vellum-tui-cli --bin vellum-tui --locked -- --service /path/to/vell
 cargo run -p vellum-tui-cli --bin vellum-tui --locked -- headless --service /path/to/vellum.sock
 ```
 
+Headless emits a versioned `workspace.inventory.v1` JSON observation with
+current bounded document/root counts and constructs no editor, focus,
+selection, or cursor state.
+
 In the empty state, `Ctrl-O` adds a file or directory and `Ctrl-Q` exits. In an
 active editor, `Ctrl-O` adds another bounded root. Directory discovery is
 deterministic, refuses symbolic links and special files, and admits at most 16

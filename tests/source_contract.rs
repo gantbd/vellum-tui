@@ -138,7 +138,8 @@ fn standalone_cli_has_explicit_headless_service_mode() {
     assert!(entry.contains("headless --service SOCKET"));
     assert!(entry.contains("if headless"));
     assert!(entry.contains("refresh_inventory"));
-    assert!(entry.contains("inventory_freshness"));
+    assert!(entry.contains("workspace.inventory.v1"));
+    assert!(entry.contains("serde_json::to_string_pretty"));
     assert!(entry.contains("ratatui::run"));
 
     let presentation = fs::read_to_string(root.join("src/lib.rs")).expect("presentation library");

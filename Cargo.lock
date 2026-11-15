@@ -1300,6 +1300,7 @@ version = "0.1.0"
 dependencies = [
  "crossterm",
  "ratatui",
+ "serde_json",
  "vellum-adapter-annotation-json",
  "vellum-adapter-local-authentication",
  "vellum-adapter-local-fs",

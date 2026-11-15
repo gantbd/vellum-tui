@@ -14,3 +14,5 @@
   `vellum-tui-cli` package, leaving the root package as the reusable
   presentation component and keeping concrete platform adapters at the CLI
   composition boundary.
+- Versioned the standalone headless inventory as a machine-readable
+  `workspace.inventory.v1` JSON observation.

@@ -726,10 +726,17 @@ fn run_service_mode(
             .inventory()
             .ok_or_else(|| std::io::Error::other("workspace inventory absent"))?;
         println!(
-            "Vellum workspace documents={} roots={} freshness={:?}",
-            inventory.documents.len(),
-            inventory.roots.len(),
-            projection.inventory_freshness()
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "version": 1,
+                "mode": "headless",
+                "complete": true,
+                "peer": "vellum",
+                "capability": "workspace.inventory.v1",
+                "status": "current",
+                "documents": inventory.documents.len(),
+                "roots": inventory.roots.len(),
+            }))?
         );
         workspace.disconnect().map_err(|failure| {
             std::io::Error::other(format!("disconnect refused: {:?}", failure.error()))

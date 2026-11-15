@@ -57,12 +57,15 @@ fi
 cargo build --manifest-path "$repo/Cargo.toml" -p vellum-tui-cli \
   --bin vellum-tui --locked --offline --target-dir "$tui_target"
 headless_status=$("$tui" headless --service "$socket")
-printf '%s\n' "$headless_status" | grep -Fq \
-  'Vellum workspace documents=1 roots=1 freshness=Current' || {
-  printf '%s\n' "$headless_status" >&2
-  echo 'FAIL: headless service status did not report the bounded inventory' >&2
-  exit 1
+printf '%s' "$headless_status" | python3 -c '
+import json, sys
+report = json.load(sys.stdin)
+assert report == {
+    "version": 1, "mode": "headless", "complete": True,
+    "peer": "vellum", "capability": "workspace.inventory.v1",
+    "status": "current", "documents": 1, "roots": 1,
 }
+'
 
 VELLUM_LIVE_SOCKET="$socket" cargo test --manifest-path "$repo/Cargo.toml" \
   --test live_service --locked --offline -- --ignored --nocapture

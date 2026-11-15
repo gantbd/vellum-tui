@@ -4,7 +4,8 @@
 `vellum-tui-cli` package and Workbench are separate composition roots.
 
 The standalone CLI package now has an explicit service-backed headless
-inventory command. It uses the workspace client directly, constructs no
+inventory command with a versioned `workspace.inventory.v1` JSON result. It
+uses the workspace client directly, constructs no
 terminal or editor cursor state, and passes in the real-daemon journey before
 the reusable editor controller opens, edits, saves, and disconnects.
 
