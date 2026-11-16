@@ -28,7 +28,7 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 printf 'alpha' >"$source_file"
-printf 'Xalpha' >"$expected_file"
+printf 'YXalpha' >"$expected_file"
 cargo build --manifest-path "$vellum/Cargo.toml" --package vellum-daemon \
   --bin vellum-daemon --locked --offline --target-dir "$daemon_target"
 "$daemon" --socket "$socket" --control "$control" --allow-edit --allow-save \
@@ -77,4 +77,4 @@ cmp -s "$source_file" "$expected_file" || {
 "$daemon" --shutdown "$control" >/dev/null
 wait "$pid"
 pid=
-echo 'PASS: real daemon -> headless status + TUI controller open/edit/save/disconnect'
+echo 'PASS: real daemon -> headless status + TUI edit/save + indeterminate exact replay'

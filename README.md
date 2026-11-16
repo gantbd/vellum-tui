@@ -26,7 +26,9 @@ Headless emits a versioned `workspace.inventory.v1` JSON observation with
 current bounded document/root counts and constructs no editor, focus,
 selection, or cursor state.
 The `capabilities` command prints Vellum's peer-owned composition manifest
-without connecting; it does not grant edit or save authority.
+without connecting. Interactive composition advertises `workspace.edit.v1` and
+`workspace.save.v1`, but those identifiers grant no edit or persistence
+authority; the connected service still enforces its independent action ceiling.
 
 In the empty state, `Ctrl-O` adds a file or directory and `Ctrl-Q` exits. In an
 active editor, `Ctrl-O` adds another bounded root. Directory discovery is
@@ -39,8 +41,10 @@ indeterminate operation must be replayed exactly before exit.
 `tests/live/service_journey.sh` builds the exact sibling Vellum daemon, starts
 it on private Unix sockets with edit/save ceilings, drives the reusable TUI
 controller through open/edit/save/disconnect, verifies exact persisted bytes,
-and requests orderly control-socket shutdown. CI runs this journey without
-opening an interactive terminal.
+deliberately discards one accepted save reply, requires the client projection to
+become indeterminate, and proves only the exact retained save can resolve it.
+The gate then requests orderly control-socket shutdown. CI runs this journey
+without opening an interactive terminal.
 
 ## Composition boundary
 

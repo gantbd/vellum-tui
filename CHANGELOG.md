@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Qualified the interactive `workspace.edit.v1` and `workspace.save.v1`
+  composition capabilities against the real daemon, including exact persisted
+  bytes and an accepted save reply deliberately discarded before exact replay
+  resolves the indeterminate projection.
 - Recovered the mature Ratatui projection from Vellum history as an independent
   composable peer.
 - Added lawful empty startup and bounded file/directory root admission.

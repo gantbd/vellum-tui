@@ -29,6 +29,10 @@ pub struct CapabilityManifest {
 pub const CAPABILITIES: CapabilityManifest = CapabilityManifest {
     schema: 1,
     peer: "vellum",
-    interactive: &["workspace.inventory.v1"],
+    interactive: &[
+        "workspace.inventory.v1",
+        "workspace.edit.v1",
+        "workspace.save.v1",
+    ],
     headless: &["workspace.inventory.v1"],
 };

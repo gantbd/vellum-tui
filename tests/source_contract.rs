@@ -120,6 +120,7 @@ fn live_service_journey_uses_only_the_peer_sdk_and_real_daemon_binary() {
     assert!(journey.contains("--package vellum-daemon"));
     assert!(journey.contains("--allow-edit --allow-save"));
     assert!(journey.contains("--test live_service"));
+    assert!(journey.contains("indeterminate exact replay"));
     assert!(journey.contains("headless --service"));
     assert!(journey.contains("--shutdown"));
     assert!(!journey.contains("cargo publish"));
@@ -128,6 +129,9 @@ fn live_service_journey_uses_only_the_peer_sdk_and_real_daemon_binary() {
     let test = fs::read_to_string(root.join("tests/live_service.rs")).expect("live test");
     assert!(test.contains("vellum_sdk_client"));
     assert!(test.contains("ServiceEditor"));
+    assert!(test.contains("LoseFirstSaveReply"));
+    assert!(test.contains("PersistenceProjectionV1::Indeterminate"));
+    assert!(test.contains("uncertain save must replay exactly"));
     assert!(!test.contains("vellum_daemon"));
 }
 
@@ -146,6 +150,9 @@ fn standalone_cli_has_explicit_headless_service_mode() {
             .unwrap()
             .contains("workspace.inventory.v1")
     );
+    let capabilities = fs::read_to_string(root.join("src/lib.rs")).unwrap();
+    assert!(capabilities.contains("workspace.edit.v1"));
+    assert!(capabilities.contains("workspace.save.v1"));
     assert!(entry.contains("ratatui::run"));
 
     let presentation = fs::read_to_string(root.join("src/lib.rs")).expect("presentation library");

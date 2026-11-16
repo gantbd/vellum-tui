@@ -27,5 +27,12 @@ delivery, semantic refusal, invalid projection, and uncertain disconnect.
   paths with identical revision, dirty-state, persistence, authorization,
   durable-operation lookup, and outcome-unknown behavior.
 
+Status: ordinary witnessed edit/save is now qualified as
+`workspace.edit.v1`/`workspace.save.v1` in standalone and hosted Workbench.
+The real-daemon paths cover exact persisted bytes, save-authority refusal,
+dirty/clean/indeterminate projection and exact retained-request replay after a
+discarded accepted reply. This does not qualify newer durable-operation lookup
+or platform-adapter profiles.
+
 Neither host may acquire source, history, persistence, or edit authority from
 the TUI component.
