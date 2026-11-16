@@ -59,9 +59,9 @@ standalone application shell or merge engine state.
 
 ## Current source checkout
 
-Until the pinned Vellum commit is reachable from its declared GitHub remote,
-this unreleased peer uses a sibling `../vellum` path for coordinated local
-qualification:
+The pinned Vellum and Keystone commits are reachable from their declared GitHub
+remotes. This unreleased peer deliberately keeps a sibling `../vellum` path for
+coordinated source qualification:
 
 ```text
 parent/
@@ -71,8 +71,8 @@ parent/
 
 Build the reusable presentation and separate standalone CLI with
 `cargo test --workspace --all-targets --locked --offline`.
-GitHub source installation will replace sibling paths with exact Vellum Git
-revisions and is not claimed yet. Nothing is published to crates.io.
+Standalone Git source installation is not claimed yet. Nothing is published to
+crates.io.
 
 ## Platform and nonclaims
 

@@ -17,7 +17,7 @@ fn unpublished_peer_is_bound_to_the_recovered_and_current_sources() {
     assert_eq!(source["vellumRevision"], VELLUM_REVISION);
     assert_eq!(source["recoveredFromVellumRevision"], RECOVERY_REVISION);
     assert_eq!(source["keystoneRevision"], KEYSTONE_REVISION);
-    assert_eq!(source["remoteReachabilityQualified"], false);
+    assert_eq!(source["remoteReachabilityQualified"], true);
     assert_eq!(source["cratesIoPublished"], false);
 
     let manifest = fs::read_to_string(root.join("Cargo.toml")).expect("manifest");
