@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "package": "vellum-tui",
-  "vellumRevision": "2edb0d475b44d4e3c635eee899bc8684da4ee3b1",
+  "vellumRevision": "418f4eeb5522309d9245b6d455085bac5cd1f8cd",
   "recoveredFromVellumRevision": "920dbfccf3806378fd0274cc51fadffac405931b",
   "keystoneRevision": "8a7970cb77e668f3488ecd97dae7c9e765f170cc",
   "remoteReachabilityQualified": false,
