@@ -13,6 +13,8 @@ mod comments;
 pub use comments::*;
 mod service;
 pub use service::*;
+mod durable_save;
+pub use durable_save::*;
 
 pub use vellum_editor::EditorFrame;
 
@@ -33,6 +35,12 @@ pub const CAPABILITIES: CapabilityManifest = CapabilityManifest {
         "workspace.inventory.v1",
         "workspace.edit.v1",
         "workspace.save.v1",
+        "workspace.durable-save.execute.v1",
+        "workspace.durable-save.lookup.v1",
     ],
-    headless: &["workspace.inventory.v1"],
+    headless: &[
+        "workspace.inventory.v1",
+        "workspace.durable-save.execute.v1",
+        "workspace.durable-save.lookup.v1",
+    ],
 };

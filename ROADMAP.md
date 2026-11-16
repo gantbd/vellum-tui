@@ -31,8 +31,15 @@ Status: ordinary witnessed edit/save is now qualified as
 `workspace.edit.v1`/`workspace.save.v1` in standalone and hosted Workbench.
 The real-daemon paths cover exact persisted bytes, save-authority refusal,
 dirty/clean/indeterminate projection and exact retained-request replay after a
-discarded accepted reply. This does not qualify newer durable-operation lookup
-or platform-adapter profiles.
+discarded accepted reply. The selected restart-stable Save profile is also
+implemented as `workspace.durable-save.execute.v1` and
+`workspace.durable-save.lookup.v1`: one peer-owned guard uses Vellum's public
+client, resolves the exact current document identity, carries the caller's
+persisted operation reference and revision, and never supplies authentication,
+authority or filesystem policy. Real-daemon qualification executes from the
+standalone shell and retrieves the same historical receipt from Workbench.
+Save As submission, receipt retirement, other durable intents and additional
+platform profiles remain unclaimed.
 
 Neither host may acquire source, history, persistence, or edit authority from
 the TUI component.

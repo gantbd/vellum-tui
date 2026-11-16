@@ -30,6 +30,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let args: Vec<_> = std::env::args_os().skip(1).collect();
+    if args.first().is_some_and(|argument| {
+        argument == "durable-save-execute" || argument == "durable-save-lookup"
+    }) {
+        return run_durable_save_command(&args);
+    }
     if args.len() == 1 && args[0] == "capabilities" {
         let manifest = vellum_tui::CAPABILITIES;
         println!(
@@ -64,6 +69,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         println!(
             "Capability discovery: vellum-tui capabilities. It prints the peer-owned presentation manifest without connecting or acquiring authority."
+        );
+        println!(
+            "Durable save: vellum-tui <durable-save-execute|durable-save-lookup> SOCKET CREDENTIAL vdo1.OPERATION_HEX DOCUMENT_ORDINAL EXPECTED_REVISION. The caller persists the operation identity; Vellum retains authentication, action authority, filesystem effects and receipt truth."
         );
         println!(
             "F2 Save As; F7 export copy. Existing destination only: enter its literal path, then Y confirms overwrite; Esc cancels. Save As retains at most 16 prior binding entries in this reference application."
@@ -683,6 +691,85 @@ impl vellum_sdk_client::transport::FrameExchange for ServiceConnector {
             Self::Authenticated(connector) => connector.exchange(request, max_reply_bytes),
         }
     }
+}
+
+#[cfg(target_os = "macos")]
+fn run_durable_save_command(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
+    use std::path::PathBuf;
+    use vellum_sdk_client::transport::{
+        AuthenticatedUnixConnector, RemoteTransport, TransportLimits,
+    };
+    use vellum_tui::{DurableSaveCommandV1, run_durable_save_v1};
+
+    let [command, socket, credential, operation, document, revision] = args else {
+        return Err(std::io::Error::other(
+            "usage: vellum-tui <durable-save-execute|durable-save-lookup> SOCKET CREDENTIAL vdo1.OPERATION_HEX DOCUMENT_ORDINAL EXPECTED_REVISION",
+        )
+        .into());
+    };
+    let command = if command == "durable-save-execute" {
+        DurableSaveCommandV1::Execute
+    } else {
+        DurableSaveCommandV1::Lookup
+    };
+    let operation = parse_durable_operation(
+        operation
+            .to_str()
+            .ok_or_else(|| std::io::Error::other("operation identity refused"))?,
+    )?;
+    let document = document
+        .to_str()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value != 0)
+        .ok_or_else(|| std::io::Error::other("document ordinal refused"))?;
+    let revision = revision
+        .to_str()
+        .and_then(|value| value.parse::<u64>().ok())
+        .ok_or_else(|| std::io::Error::other("expected revision refused"))?;
+    let mut store = vellum_adapter_local_authentication::LocalCredentialStoreV1::default();
+    let record = store
+        .load(&PathBuf::from(credential))
+        .map_err(|error| std::io::Error::other(format!("credential refused: {error:?}")))?;
+    let provider = vellum_adapter_local_authentication::LocalCredentialClaimProviderV1::new(record);
+    let connector = ServiceConnector::Authenticated(AuthenticatedUnixConnector::with_provider(
+        PathBuf::from(socket),
+        provider,
+    ));
+    let transport = RemoteTransport::new(connector, TransportLimits::reference())
+        .map_err(|error| std::io::Error::other(format!("transport refused: {error:?}")))?;
+    let report = run_durable_save_v1(transport, command, operation, document, revision)?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "version": 1,
+            "peer": "vellum",
+            "capability": match command {
+                DurableSaveCommandV1::Execute => "workspace.durable-save.execute.v1",
+                DurableSaveCommandV1::Lookup => "workspace.durable-save.lookup.v1",
+            },
+            "status": report.outcome.status(),
+            "disconnect": report.disconnect.status(),
+        }))?
+    );
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn parse_durable_operation(
+    value: &str,
+) -> Result<vellum_sdk_client::protocol::DurableOperationRefV1, Box<dyn std::error::Error>> {
+    let hex = value
+        .strip_prefix("vdo1.")
+        .filter(|hex| hex.len() == 32)
+        .ok_or_else(|| std::io::Error::other("operation identity refused"))?;
+    let mut bytes = [0_u8; 16];
+    for (index, pair) in hex.as_bytes().chunks_exact(2).enumerate() {
+        let pair = std::str::from_utf8(pair)?;
+        bytes[index] = u8::from_str_radix(pair, 16)
+            .map_err(|_| std::io::Error::other("operation identity refused"))?;
+    }
+    vellum_sdk_client::protocol::DurableOperationRefV1::new(bytes)
+        .ok_or_else(|| std::io::Error::other("operation identity refused").into())
 }
 
 #[cfg(target_os = "macos")]

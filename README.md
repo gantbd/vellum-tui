@@ -27,8 +27,19 @@ current bounded document/root counts and constructs no editor, focus,
 selection, or cursor state.
 The `capabilities` command prints Vellum's peer-owned composition manifest
 without connecting. Interactive composition advertises `workspace.edit.v1` and
-`workspace.save.v1`, but those identifiers grant no edit or persistence
-authority; the connected service still enforces its independent action ceiling.
+`workspace.save.v1`; interactive and headless composition also advertise the
+selected `workspace.durable-save.execute.v1` and
+`workspace.durable-save.lookup.v1` profile. Those identifiers grant no edit or
+persistence authority; the connected service still enforces authentication,
+its independent action ceiling, and the selected filesystem adapter.
+
+Use `vellum-tui durable-save-execute SOCKET CREDENTIAL
+vdo1.OPERATION_HEX DOCUMENT_ORDINAL EXPECTED_REVISION` after persisting the
+operation identity, and use the corresponding `durable-save-lookup` command to
+recover only that exact historical receipt. Transport uncertainty is reported
+without minting or retrying a different operation. Save As submission, receipt
+retirement, arbitrary destinations, and broader durable effects are not exposed
+by this profile.
 
 In the empty state, `Ctrl-O` adds a file or directory and `Ctrl-Q` exits. In an
 active editor, `Ctrl-O` adds another bounded root. Directory discovery is
