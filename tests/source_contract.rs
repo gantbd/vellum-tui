@@ -1,9 +1,9 @@
 use serde_json::Value;
 use std::{fs, path::Path};
 
-const VELLUM_REVISION: &str = "418f4eeb5522309d9245b6d455085bac5cd1f8cd";
+const VELLUM_REVISION: &str = "898affc1860869ab7fd4d4de369ca3556bc12aaf";
 const RECOVERY_REVISION: &str = "920dbfccf3806378fd0274cc51fadffac405931b";
-const KEYSTONE_REVISION: &str = "8a7970cb77e668f3488ecd97dae7c9e765f170cc";
+const KEYSTONE_REVISION: &str = "2e4faf10ec0a70805aa1db1555f93c77fcf0a1e4";
 
 #[test]
 fn unpublished_peer_is_bound_to_the_recovered_and_current_sources() {
@@ -98,8 +98,8 @@ fn github_ci_is_read_only_and_exactly_coordinates_sources() {
             .count(),
         3
     );
-    assert!(workflow.contains("ref: 418f4eeb5522309d9245b6d455085bac5cd1f8cd"));
-    assert!(workflow.contains("ref: 8a7970cb77e668f3488ecd97dae7c9e765f170cc"));
+    assert!(workflow.contains("ref: 898affc1860869ab7fd4d4de369ca3556bc12aaf"));
+    assert!(workflow.contains("ref: 2e4faf10ec0a70805aa1db1555f93c77fcf0a1e4"));
     assert!(workflow.contains("permissions:\n  contents: read"));
     assert!(workflow.contains("./tests/live/service_journey.sh"));
     for forbidden in [

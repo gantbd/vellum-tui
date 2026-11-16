@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "package": "vellum-tui",
-  "vellumRevision": "418f4eeb5522309d9245b6d455085bac5cd1f8cd",
+  "vellumRevision": "898affc1860869ab7fd4d4de369ca3556bc12aaf",
   "recoveredFromVellumRevision": "920dbfccf3806378fd0274cc51fadffac405931b",
-  "keystoneRevision": "8a7970cb77e668f3488ecd97dae7c9e765f170cc",
+  "keystoneRevision": "2e4faf10ec0a70805aa1db1555f93c77fcf0a1e4",
   "remoteReachabilityQualified": true,
   "cratesIoPublished": false
 }
