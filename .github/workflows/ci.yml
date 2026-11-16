@@ -44,6 +44,7 @@ jobs:
           GIT_CONFIG_NOSYSTEM: "1"
         run: |
           printf '[url "file://${{ github.workspace }}/keystone"]\n\tinsteadOf = https://github.com/gantbd/keystone\n' > "$GIT_CONFIG_GLOBAL"
+          cargo fetch --locked --manifest-path ../vellum/Cargo.toml
           cargo fmt --check
           cargo test --workspace --all-targets --locked
           cargo clippy --workspace --all-targets --locked -- -D warnings
