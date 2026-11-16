@@ -26,14 +26,14 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: gantbd/vellum
-          ref: f4a53ba664acf2a12b6fadfd7d378eef63307c39
+          ref: 2edb0d475b44d4e3c635eee899bc8684da4ee3b1
           path: vellum
           persist-credentials: false
       - name: Check out exact Keystone dependency
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: gantbd/keystone
-          ref: 3486252cdbaeb2d784756076f43ef6157ed0b7f8
+          ref: 8a7970cb77e668f3488ecd97dae7c9e765f170cc
           path: keystone
           persist-credentials: false
       - name: Qualify locked terminal peer
