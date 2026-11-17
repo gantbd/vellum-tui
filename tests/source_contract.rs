@@ -1,7 +1,7 @@
 use serde_json::Value;
 use std::{fs, path::Path};
 
-const VELLUM_REVISION: &str = "898affc1860869ab7fd4d4de369ca3556bc12aaf";
+const VELLUM_REVISION: &str = "81881c01517af77e3bdc25d7998e74bb4087e882";
 const RECOVERY_REVISION: &str = "920dbfccf3806378fd0274cc51fadffac405931b";
 const KEYSTONE_REVISION: &str = "2e4faf10ec0a70805aa1db1555f93c77fcf0a1e4";
 
@@ -98,7 +98,7 @@ fn github_ci_is_read_only_and_exactly_coordinates_sources() {
             .count(),
         3
     );
-    assert!(workflow.contains("ref: 898affc1860869ab7fd4d4de369ca3556bc12aaf"));
+    assert!(workflow.contains("ref: 81881c01517af77e3bdc25d7998e74bb4087e882"));
     assert!(workflow.contains("ref: 2e4faf10ec0a70805aa1db1555f93c77fcf0a1e4"));
     assert!(workflow.contains("permissions:\n  contents: read"));
     assert!(workflow.contains("./tests/live/service_journey.sh"));

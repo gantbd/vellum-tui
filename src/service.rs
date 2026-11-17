@@ -1,11 +1,48 @@
 use unicode_width::UnicodeWidthStr;
 use vellum_editor::EditorFrame;
 use vellum_sdk_client::{
-    protocol::{ServicePort, WorkspaceDocumentIdV1},
+    protocol::{
+        MAX_WORKSPACE_EDIT_PAYLOAD_BYTES_V1, MAX_WORKSPACE_EDIT_REPLACEMENTS_V1, RefusalV1,
+        ServicePort, WorkspaceDocumentEditV1, WorkspaceDocumentIdV1, WorkspaceReplacementV1,
+    },
     workspace::{
         PersistenceProjectionV1, ProjectionFreshnessV1, WorkspaceClientErrorV1, WorkspaceClientV1,
     },
 };
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AtomicReplaceDocumentPreviewV1 {
+    pub document_ordinal: u64,
+    pub expected_revision: u64,
+    pub matches: usize,
+}
+
+/// Exact, bounded preview for one owner-atomic in-memory publication. Search
+/// and replacement bytes are intentionally absent from Debug and host-facing
+/// metadata; the private edits are submitted only to Vellum's public client.
+#[derive(Clone, Eq, PartialEq)]
+pub struct AtomicReplacePreviewV1 {
+    pub documents: Vec<AtomicReplaceDocumentPreviewV1>,
+    pub total_matches: usize,
+    pub(crate) edits: Vec<WorkspaceDocumentEditV1>,
+}
+
+impl std::fmt::Debug for AtomicReplacePreviewV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AtomicReplacePreviewV1")
+            .field("documents", &self.documents)
+            .field("total_matches", &self.total_matches)
+            .field("edits", &"<redacted>")
+            .finish()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AtomicReplaceCommitV1 {
+    pub generation: u64,
+    pub changed_documents: usize,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ServiceAction {
@@ -19,6 +56,7 @@ pub enum ServiceAction {
     Home,
     End,
     NextDocument,
+    ToggleDocumentSelection,
     Save,
     Refresh,
 }
@@ -80,6 +118,15 @@ impl From<WorkspaceClientErrorV1> for ServiceEditorError {
 pub struct ServiceEditor<T> {
     workspace: WorkspaceClientV1<T>,
     cursor: usize,
+    documents: Vec<DocumentUiState>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct DocumentUiState {
+    document: WorkspaceDocumentIdV1,
+    cursor: usize,
+    persistence: PersistenceProjectionV1,
+    selected: bool,
 }
 
 impl<T: ServicePort> ServiceEditor<T> {
@@ -88,8 +135,11 @@ impl<T: ServicePort> ServiceEditor<T> {
         let mut editor = Self {
             workspace,
             cursor: 0,
+            documents: Vec::new(),
         };
         editor.ensure_selection()?;
+        editor.reconcile_documents();
+        editor.sync_current_state();
         Ok(editor)
     }
 
@@ -104,59 +154,66 @@ impl<T: ServicePort> ServiceEditor<T> {
     }
 
     pub fn apply(&mut self, action: ServiceAction) -> Result<(), ServiceEditorError> {
-        match action {
-            ServiceAction::Insert(inserted) => {
-                let at = self.cursor_u64()?;
-                let bytes = inserted.len();
-                self.workspace.replace(at, at, inserted)?;
-                self.cursor = self.cursor.saturating_add(bytes);
-            }
-            ServiceAction::Backspace => {
-                let Some(start) = self.previous_boundary() else {
-                    return Ok(());
-                };
-                self.workspace
-                    .replace(to_u64(start)?, self.cursor_u64()?, String::new())?;
-                self.cursor = start;
-            }
-            ServiceAction::Delete => {
-                let Some(end) = self.next_boundary() else {
-                    return Ok(());
-                };
-                self.workspace
-                    .replace(self.cursor_u64()?, to_u64(end)?, String::new())?;
-            }
-            ServiceAction::Left => {
-                if let Some(previous) = self.previous_boundary() {
-                    self.cursor = previous;
+        let result = (|| {
+            match action {
+                ServiceAction::Insert(inserted) => {
+                    let at = self.cursor_u64()?;
+                    let bytes = inserted.len();
+                    self.workspace.replace(at, at, inserted)?;
+                    self.cursor = self.cursor.saturating_add(bytes);
                 }
-            }
-            ServiceAction::Right => {
-                if let Some(next) = self.next_boundary() {
-                    self.cursor = next;
+                ServiceAction::Backspace => {
+                    let Some(start) = self.previous_boundary() else {
+                        return Ok::<(), ServiceEditorError>(());
+                    };
+                    self.workspace
+                        .replace(to_u64(start)?, self.cursor_u64()?, String::new())?;
+                    self.cursor = start;
                 }
+                ServiceAction::Delete => {
+                    let Some(end) = self.next_boundary() else {
+                        return Ok(());
+                    };
+                    self.workspace
+                        .replace(self.cursor_u64()?, to_u64(end)?, String::new())?;
+                }
+                ServiceAction::Left => {
+                    if let Some(previous) = self.previous_boundary() {
+                        self.cursor = previous;
+                    }
+                }
+                ServiceAction::Right => {
+                    if let Some(next) = self.next_boundary() {
+                        self.cursor = next;
+                    }
+                }
+                ServiceAction::Home => self.cursor = self.current_line().0,
+                ServiceAction::End => self.cursor = self.current_line().1,
+                ServiceAction::Up => self.move_vertical(false),
+                ServiceAction::Down => self.move_vertical(true),
+                ServiceAction::NextDocument => self.next_document()?,
+                ServiceAction::ToggleDocumentSelection => self.toggle_document_selection(),
+                ServiceAction::Save => self.workspace.save()?,
+                ServiceAction::Refresh => self.refresh()?,
             }
-            ServiceAction::Home => self.cursor = self.current_line().0,
-            ServiceAction::End => self.cursor = self.current_line().1,
-            ServiceAction::Up => self.move_vertical(false),
-            ServiceAction::Down => self.move_vertical(true),
-            ServiceAction::NextDocument => self.next_document()?,
-            ServiceAction::Save => self.workspace.save()?,
-            ServiceAction::Refresh => self.refresh()?,
-        }
+            Ok(())
+        })();
         self.clamp_cursor();
-        Ok(())
+        self.sync_current_state();
+        result
     }
 
     pub fn admit_file(&mut self, locator: String) -> Result<(), ServiceEditorError> {
         self.workspace.admit_file(locator)?;
         self.workspace.refresh_inventory()?;
+        self.reconcile_documents();
         self.ensure_selection()
     }
 
     pub fn admit_directory(&mut self, locator: String) -> Result<(), ServiceEditorError> {
         self.workspace.admit_directory(locator)?;
         self.workspace.refresh_inventory()?;
+        self.reconcile_documents();
         self.ensure_selection()
     }
 
@@ -164,6 +221,7 @@ impl<T: ServicePort> ServiceEditor<T> {
         self.workspace.poll_changes()?;
         if self.workspace.projection().inventory_freshness() == ProjectionFreshnessV1::Stale {
             self.workspace.refresh_inventory()?;
+            self.reconcile_documents();
         }
         if self.workspace.projection().snapshot_freshness() == ProjectionFreshnessV1::Stale
             && self.workspace.projection().persistence() != PersistenceProjectionV1::Indeterminate
@@ -171,6 +229,7 @@ impl<T: ServicePort> ServiceEditor<T> {
             self.workspace.refresh_snapshot()?;
         }
         self.clamp_cursor();
+        self.sync_current_state();
         Ok(())
     }
 
@@ -197,8 +256,9 @@ impl<T: ServicePort> ServiceEditor<T> {
                     .position(|document| *document == selected)
             })
             .unwrap_or(0);
+        let persistence = self.current_persistence();
         let dirty = matches!(
-            projection.persistence(),
+            persistence,
             PersistenceProjectionV1::Dirty | PersistenceProjectionV1::Indeterminate
         );
         Some(EditorFrame {
@@ -210,9 +270,10 @@ impl<T: ServicePort> ServiceEditor<T> {
                 u16::try_from(line.saturating_sub(first)).unwrap_or(u16::MAX),
             )),
             status: format!(
-                "Service {:?} / {:?}",
+                "Service {:?} / {:?} • {} selected",
                 projection.snapshot_freshness(),
-                projection.persistence()
+                persistence,
+                self.selected_document_count(),
             ),
             active,
             documents: inventory.documents.len(),
@@ -244,6 +305,7 @@ impl<T: ServicePort> ServiceEditor<T> {
 
     fn refresh(&mut self) -> Result<(), ServiceEditorError> {
         self.workspace.refresh_inventory()?;
+        self.reconcile_documents();
         self.ensure_selection()?;
         if self.workspace.projection().selected().is_some() {
             self.workspace.refresh_snapshot()?;
@@ -254,6 +316,7 @@ impl<T: ServicePort> ServiceEditor<T> {
     fn next_document(&mut self) -> Result<(), ServiceEditorError> {
         if self.workspace.projection().inventory_freshness() != ProjectionFreshnessV1::Current {
             self.workspace.refresh_inventory()?;
+            self.reconcile_documents();
         }
         let projection = self.workspace.projection();
         let inventory = projection.inventory().ok_or(ServiceEditorError(
@@ -278,10 +341,346 @@ impl<T: ServicePort> ServiceEditor<T> {
     }
 
     fn select(&mut self, document: WorkspaceDocumentIdV1) -> Result<(), ServiceEditorError> {
+        self.store_cursor();
         self.workspace.select_document(document)?;
         self.workspace.refresh_snapshot()?;
-        self.cursor = 0;
+        self.cursor = self
+            .documents
+            .iter()
+            .find(|state| state.document == document)
+            .map_or(0, |state| state.cursor);
         Ok(())
+    }
+
+    /// Aggregate exit truth across the complete bounded workspace, not merely
+    /// the currently visible document.
+    pub fn aggregate_persistence(&self) -> PersistenceProjectionV1 {
+        if self
+            .documents
+            .iter()
+            .any(|state| state.persistence == PersistenceProjectionV1::Indeterminate)
+        {
+            PersistenceProjectionV1::Indeterminate
+        } else if self
+            .documents
+            .iter()
+            .any(|state| state.persistence == PersistenceProjectionV1::Dirty)
+        {
+            PersistenceProjectionV1::Dirty
+        } else if self.documents.is_empty() {
+            PersistenceProjectionV1::Unknown
+        } else {
+            PersistenceProjectionV1::Clean
+        }
+    }
+
+    pub fn selected_document_count(&self) -> usize {
+        let count = self.documents.iter().filter(|state| state.selected).count();
+        if count == 0 && !self.documents.is_empty() {
+            1
+        } else {
+            count
+        }
+    }
+
+    pub fn selected_documents(&self) -> Vec<WorkspaceDocumentIdV1> {
+        let selected = self
+            .documents
+            .iter()
+            .filter(|state| state.selected)
+            .map(|state| state.document)
+            .collect::<Vec<_>>();
+        if selected.is_empty() {
+            self.workspace.projection().selected().into_iter().collect()
+        } else {
+            selected
+        }
+    }
+
+    pub fn current_document(&self) -> Option<WorkspaceDocumentIdV1> {
+        self.workspace.projection().selected()
+    }
+
+    /// Re-observes every selected document and returns exact owner ordinals and
+    /// source revisions for a separately guarded durable-save workset.
+    pub fn prepare_selected_save_targets(&mut self) -> Result<Vec<(u64, u64)>, ServiceEditorError> {
+        let selected = self.selected_documents();
+        if selected.iter().any(|document| {
+            self.documents.iter().any(|state| {
+                state.document == *document
+                    && state.persistence == PersistenceProjectionV1::Indeterminate
+            })
+        }) {
+            return Err(ServiceEditorError(WorkspaceClientErrorV1::Access(
+                vellum_sdk_client::protocol::ServiceAccessErrorV1::OutcomeUnknown,
+            )));
+        }
+        let original = self.current_document();
+        let result = (|| {
+            let mut targets = Vec::with_capacity(selected.len());
+            for document in selected {
+                if self.current_document() != Some(document) {
+                    self.select(document)?;
+                } else if self.workspace.projection().snapshot_freshness()
+                    != ProjectionFreshnessV1::Current
+                {
+                    self.workspace.refresh_snapshot()?;
+                }
+                let revision = self
+                    .workspace
+                    .projection()
+                    .snapshot()
+                    .ok_or(ServiceEditorError(WorkspaceClientErrorV1::Projection(
+                        vellum_sdk_client::workspace::WorkspaceProjectionRefusalV1::SelectionRequired,
+                    )))?
+                    .revision;
+                targets.push((document.get(), revision));
+            }
+            Ok(targets)
+        })();
+        if let Some(original) = original
+            && self.current_document() != Some(original)
+        {
+            let restored = self.select(original);
+            if result.is_ok() {
+                restored?;
+            }
+        }
+        result
+    }
+
+    /// Re-observes the complete marked set and prepares one literal replace-all
+    /// transaction over every match. The preview is exact but has no authority;
+    /// commit still binds all owner revisions atomically.
+    pub fn prepare_atomic_replace(
+        &mut self,
+        query: &str,
+        replacement: &str,
+    ) -> Result<AtomicReplacePreviewV1, ServiceEditorError> {
+        if query.is_empty() || query == replacement {
+            return Err(ServiceEditorError(WorkspaceClientErrorV1::Refused(
+                RefusalV1::InputLimit,
+            )));
+        }
+        let selected = self.selected_documents();
+        let original = self.current_document();
+        let result = (|| {
+            let mut documents = Vec::with_capacity(selected.len());
+            let mut edits = Vec::with_capacity(selected.len());
+            let mut total_matches = 0usize;
+            let mut payload_bytes = 4usize;
+            for document in selected {
+                if self.current_document() != Some(document) {
+                    self.select(document)?;
+                } else if self.workspace.projection().snapshot_freshness()
+                    != ProjectionFreshnessV1::Current
+                {
+                    self.workspace.refresh_snapshot()?;
+                }
+                let snapshot = self
+                    .workspace
+                    .projection()
+                    .snapshot()
+                    .ok_or(ServiceEditorError(WorkspaceClientErrorV1::Projection(
+                    vellum_sdk_client::workspace::WorkspaceProjectionRefusalV1::SelectionRequired,
+                )))?;
+                let matches = snapshot.text.match_indices(query).collect::<Vec<_>>();
+                if matches.len() > MAX_WORKSPACE_EDIT_REPLACEMENTS_V1 {
+                    return Err(ServiceEditorError(WorkspaceClientErrorV1::Refused(
+                        RefusalV1::InputLimit,
+                    )));
+                }
+                documents.push(AtomicReplaceDocumentPreviewV1 {
+                    document_ordinal: document.get(),
+                    expected_revision: snapshot.revision,
+                    matches: matches.len(),
+                });
+                if matches.is_empty() {
+                    continue;
+                }
+                let mut replacements = Vec::with_capacity(matches.len());
+                for (start, matched) in matches {
+                    payload_bytes = payload_bytes
+                        .checked_add(20)
+                        .and_then(|bytes| bytes.checked_add(replacement.len()))
+                        .filter(|bytes| *bytes <= MAX_WORKSPACE_EDIT_PAYLOAD_BYTES_V1)
+                        .ok_or(ServiceEditorError(WorkspaceClientErrorV1::Refused(
+                            RefusalV1::InputLimit,
+                        )))?;
+                    replacements.push(WorkspaceReplacementV1 {
+                        start: to_u64(start)?,
+                        end: to_u64(start + matched.len())?,
+                        inserted: replacement.to_owned(),
+                    });
+                }
+                total_matches =
+                    total_matches
+                        .checked_add(replacements.len())
+                        .ok_or(ServiceEditorError(WorkspaceClientErrorV1::Refused(
+                            RefusalV1::InputLimit,
+                        )))?;
+                edits.push(WorkspaceDocumentEditV1 {
+                    document,
+                    expected_revision: snapshot.revision,
+                    replacements,
+                });
+            }
+            if edits.is_empty() {
+                return Err(ServiceEditorError(WorkspaceClientErrorV1::Refused(
+                    RefusalV1::InputLimit,
+                )));
+            }
+            Ok(AtomicReplacePreviewV1 {
+                documents,
+                total_matches,
+                edits,
+            })
+        })();
+        if let Some(original) = original
+            && self.current_document() != Some(original)
+        {
+            let restored = self.select(original);
+            if result.is_ok() {
+                restored?;
+            }
+        }
+        result
+    }
+
+    pub fn commit_atomic_replace(
+        &mut self,
+        preview: &AtomicReplacePreviewV1,
+    ) -> Result<AtomicReplaceCommitV1, ServiceEditorError> {
+        let participants = preview
+            .edits
+            .iter()
+            .map(|edit| edit.document)
+            .collect::<Vec<_>>();
+        match self.workspace.workspace_edit(preview.edits.clone()) {
+            Ok(receipt) => {
+                for edited in &receipt.documents {
+                    if let Some(state) = self
+                        .documents
+                        .iter_mut()
+                        .find(|state| state.document == edited.document)
+                    {
+                        state.persistence = PersistenceProjectionV1::Dirty;
+                        state.cursor = state.cursor.min(edited.snapshot.text.len());
+                    }
+                }
+                self.clamp_cursor();
+                self.sync_current_state();
+                Ok(AtomicReplaceCommitV1 {
+                    generation: receipt.generation,
+                    changed_documents: receipt.documents.len(),
+                })
+            }
+            Err(error) => {
+                let persistence = match error {
+                    WorkspaceClientErrorV1::Access(
+                        vellum_sdk_client::protocol::ServiceAccessErrorV1::OutcomeUnknown,
+                    ) => Some(PersistenceProjectionV1::Indeterminate),
+                    WorkspaceClientErrorV1::Refused(RefusalV1::Stale) => {
+                        Some(PersistenceProjectionV1::Unknown)
+                    }
+                    _ => None,
+                };
+                if let Some(persistence) = persistence {
+                    for state in &mut self.documents {
+                        if participants.contains(&state.document) {
+                            state.persistence = persistence;
+                        }
+                    }
+                }
+                self.sync_current_state();
+                Err(error.into())
+            }
+        }
+    }
+
+    /// Admits only exact durable child receipts already verified by the batch
+    /// component. Other documents keep their prior local persistence truth.
+    pub fn admit_durable_saves(&mut self, ordinals: &[u64]) {
+        for state in &mut self.documents {
+            if ordinals.contains(&state.document.get()) {
+                state.persistence = PersistenceProjectionV1::Clean;
+            }
+        }
+    }
+
+    fn toggle_document_selection(&mut self) {
+        let Some(document) = self.current_document() else {
+            return;
+        };
+        if let Some(state) = self
+            .documents
+            .iter_mut()
+            .find(|state| state.document == document)
+        {
+            state.selected = !state.selected;
+        }
+    }
+
+    fn reconcile_documents(&mut self) {
+        let Some(inventory) = self.workspace.projection().inventory() else {
+            return;
+        };
+        self.documents
+            .retain(|state| inventory.documents.contains(&state.document));
+        for document in &inventory.documents {
+            if !self
+                .documents
+                .iter()
+                .any(|state| state.document == *document)
+            {
+                self.documents.push(DocumentUiState {
+                    document: *document,
+                    cursor: 0,
+                    persistence: PersistenceProjectionV1::Clean,
+                    selected: false,
+                });
+            }
+        }
+    }
+
+    fn store_cursor(&mut self) {
+        let Some(document) = self.current_document() else {
+            return;
+        };
+        if let Some(state) = self
+            .documents
+            .iter_mut()
+            .find(|state| state.document == document)
+        {
+            state.cursor = self.cursor;
+        }
+    }
+
+    fn sync_current_state(&mut self) {
+        let Some(document) = self.current_document() else {
+            return;
+        };
+        let projected = self.workspace.projection().persistence();
+        if let Some(state) = self
+            .documents
+            .iter_mut()
+            .find(|state| state.document == document)
+        {
+            state.cursor = self.cursor;
+            if projected != PersistenceProjectionV1::Unknown {
+                state.persistence = projected;
+            }
+        }
+    }
+
+    fn current_persistence(&self) -> PersistenceProjectionV1 {
+        self.current_document()
+            .and_then(|document| {
+                self.documents
+                    .iter()
+                    .find(|state| state.document == document)
+            })
+            .map_or(PersistenceProjectionV1::Unknown, |state| state.persistence)
     }
 
     fn source(&self) -> &str {
@@ -384,6 +783,7 @@ mod tests {
     struct ScriptedPort {
         replies: VecDeque<Result<ReplyV1, ServiceAccessErrorV1>>,
         commands: Vec<CommandV1>,
+        request_ids: Vec<u64>,
     }
 
     impl ServicePort for ScriptedPort {
@@ -392,6 +792,7 @@ mod tests {
         }
 
         fn execute(&mut self, request: RequestV1) -> Result<ReplyV1, ServiceAccessErrorV1> {
+            self.request_ids.push(request.request.get());
             self.commands.push(request.command);
             self.replies.pop_front().unwrap()
         }
@@ -470,6 +871,7 @@ mod tests {
             .into_iter()
             .collect(),
             commands: Vec::new(),
+            request_ids: Vec::new(),
         };
         let workspace = WorkspaceClientV1::connect(port).unwrap();
         let mut editor = ServiceEditor::open(workspace).unwrap();
@@ -491,5 +893,282 @@ mod tests {
         assert!(matches!(port.commands[2], CommandV1::Snapshot));
         assert!(matches!(port.commands[3], CommandV1::Replace { .. }));
         assert!(matches!(port.commands[4], CommandV1::Save { .. }));
+    }
+
+    #[test]
+    fn service_editor_retains_n_document_selection_cursor_and_dirty_truth() {
+        let workspace = WorkspaceIdV1::new(7).unwrap();
+        let first = WorkspaceDocumentIdV1::new(workspace, 9).unwrap();
+        let second = WorkspaceDocumentIdV1::new(workspace, 10).unwrap();
+        let snapshot = |witness, revision, text: &'static str| SnapshotV1 {
+            witness: VersionWitness::new(witness).unwrap(),
+            revision,
+            text: Arc::from(text),
+        };
+        let port = ScriptedPort {
+            replies: [
+                Ok(ReplyV1::Accepted(OutcomeV1::WorkspaceInventory(
+                    WorkspaceInventoryV1 {
+                        workspace,
+                        documents: vec![first, second],
+                        roots: Vec::new(),
+                    },
+                ))),
+                Ok(ReplyV1::Accepted(OutcomeV1::ViewOpened(
+                    vellum_sdk_client::protocol::ViewOpenReceiptV1 {
+                        document: first,
+                        status: vellum_sdk_client::protocol::ViewOpenStatusV1::Opened,
+                    },
+                ))),
+                Ok(ReplyV1::Accepted(OutcomeV1::Snapshot(snapshot(
+                    1, 1, "one",
+                )))),
+                Ok(ReplyV1::Accepted(OutcomeV1::Replaced(snapshot(
+                    2, 2, "xone",
+                )))),
+                Ok(ReplyV1::Accepted(OutcomeV1::DocumentSelected(second))),
+                Ok(ReplyV1::Accepted(OutcomeV1::Snapshot(snapshot(
+                    3, 1, "two",
+                )))),
+                Ok(ReplyV1::Accepted(OutcomeV1::Replaced(snapshot(
+                    4, 2, "ytwo",
+                )))),
+                Ok(ReplyV1::Accepted(OutcomeV1::DocumentSelected(first))),
+                Ok(ReplyV1::Accepted(OutcomeV1::Snapshot(snapshot(
+                    5, 2, "xone",
+                )))),
+                Ok(ReplyV1::Accepted(OutcomeV1::DocumentSelected(second))),
+                Ok(ReplyV1::Accepted(OutcomeV1::Snapshot(snapshot(
+                    6, 2, "ytwo",
+                )))),
+                Ok(ReplyV1::Accepted(OutcomeV1::DocumentSelected(first))),
+                Ok(ReplyV1::Accepted(OutcomeV1::Snapshot(snapshot(
+                    7, 2, "xone",
+                )))),
+            ]
+            .into_iter()
+            .collect(),
+            commands: Vec::new(),
+            request_ids: Vec::new(),
+        };
+        let workspace = WorkspaceClientV1::connect(port).unwrap();
+        let mut editor = ServiceEditor::open(workspace).unwrap();
+        editor
+            .apply(ServiceAction::ToggleDocumentSelection)
+            .unwrap();
+        editor.apply(ServiceAction::Insert("x".into())).unwrap();
+        editor.apply(ServiceAction::NextDocument).unwrap();
+        editor
+            .apply(ServiceAction::ToggleDocumentSelection)
+            .unwrap();
+        editor.apply(ServiceAction::Insert("y".into())).unwrap();
+
+        assert_eq!(editor.selected_document_count(), 2);
+        assert_eq!(editor.selected_documents(), vec![first, second]);
+        assert_eq!(
+            editor.aggregate_persistence(),
+            PersistenceProjectionV1::Dirty
+        );
+        assert!(editor.frame(4).unwrap().status.contains("2 selected"));
+
+        editor.apply(ServiceAction::NextDocument).unwrap();
+        assert_eq!(editor.current_document(), Some(first));
+        assert_eq!(editor.frame(4).unwrap().cursor, Some((1, 0)));
+        assert!(editor.frame(4).unwrap().dirty);
+
+        assert_eq!(
+            editor.prepare_selected_save_targets().unwrap(),
+            vec![(9, 2), (10, 2)]
+        );
+        editor.admit_durable_saves(&[9, 10]);
+        assert_eq!(
+            editor.aggregate_persistence(),
+            PersistenceProjectionV1::Clean
+        );
+    }
+
+    #[test]
+    fn atomic_replace_previews_and_commits_all_marked_documents_once() {
+        let workspace = WorkspaceIdV1::new(7).unwrap();
+        let first = WorkspaceDocumentIdV1::new(workspace, 9).unwrap();
+        let second = WorkspaceDocumentIdV1::new(workspace, 10).unwrap();
+        let snapshot = |witness, revision, text: &'static str| SnapshotV1 {
+            witness: VersionWitness::new(witness).unwrap(),
+            revision,
+            text: Arc::from(text),
+        };
+        let port = ScriptedPort {
+            replies: [
+                Ok(ReplyV1::Accepted(OutcomeV1::WorkspaceInventory(
+                    WorkspaceInventoryV1 {
+                        workspace,
+                        documents: vec![first, second],
+                        roots: Vec::new(),
+                    },
+                ))),
+                Ok(ReplyV1::Accepted(OutcomeV1::ViewOpened(
+                    vellum_sdk_client::protocol::ViewOpenReceiptV1 {
+                        document: first,
+                        status: vellum_sdk_client::protocol::ViewOpenStatusV1::Opened,
+                    },
+                ))),
+                Ok(ReplyV1::Accepted(OutcomeV1::Snapshot(snapshot(
+                    1,
+                    4,
+                    "alpha alpha",
+                )))),
+                Ok(ReplyV1::Accepted(OutcomeV1::DocumentSelected(second))),
+                Ok(ReplyV1::Accepted(OutcomeV1::Snapshot(snapshot(
+                    2,
+                    6,
+                    "alpha beta",
+                )))),
+                Ok(ReplyV1::Accepted(OutcomeV1::DocumentSelected(first))),
+                Ok(ReplyV1::Accepted(OutcomeV1::Snapshot(snapshot(
+                    3,
+                    4,
+                    "alpha alpha",
+                )))),
+                Ok(ReplyV1::Accepted(OutcomeV1::DocumentSelected(second))),
+                Ok(ReplyV1::Accepted(OutcomeV1::Snapshot(snapshot(
+                    4,
+                    6,
+                    "alpha beta",
+                )))),
+                Ok(ReplyV1::Accepted(OutcomeV1::WorkspaceEdited(
+                    vellum_sdk_client::protocol::WorkspaceEditReceiptV1 {
+                        workspace,
+                        generation: 11,
+                        documents: vec![
+                            vellum_sdk_client::protocol::WorkspaceEditedDocumentV1 {
+                                document: first,
+                                snapshot: snapshot(5, 5, "omega omega"),
+                            },
+                            vellum_sdk_client::protocol::WorkspaceEditedDocumentV1 {
+                                document: second,
+                                snapshot: snapshot(6, 7, "omega beta"),
+                            },
+                        ],
+                    },
+                ))),
+            ]
+            .into_iter()
+            .collect(),
+            commands: Vec::new(),
+            request_ids: Vec::new(),
+        };
+        let workspace = WorkspaceClientV1::connect(port).unwrap();
+        let mut editor = ServiceEditor::open(workspace).unwrap();
+        editor
+            .apply(ServiceAction::ToggleDocumentSelection)
+            .unwrap();
+        editor.apply(ServiceAction::NextDocument).unwrap();
+        editor
+            .apply(ServiceAction::ToggleDocumentSelection)
+            .unwrap();
+
+        let preview = editor.prepare_atomic_replace("alpha", "omega").unwrap();
+        assert_eq!(preview.total_matches, 3);
+        assert_eq!(preview.documents[0].matches, 2);
+        assert_eq!(preview.documents[1].matches, 1);
+        assert_eq!(
+            editor.commit_atomic_replace(&preview).unwrap(),
+            AtomicReplaceCommitV1 {
+                generation: 11,
+                changed_documents: 2,
+            }
+        );
+        assert_eq!(
+            editor.aggregate_persistence(),
+            PersistenceProjectionV1::Dirty
+        );
+        assert_eq!(editor.frame(4).unwrap().lines, ["omega beta"]);
+
+        let port = editor.disconnect().unwrap();
+        let CommandV1::WorkspaceEdit { documents } = &port.commands[9] else {
+            panic!("one atomic workspace edit must be submitted")
+        };
+        assert_eq!(documents.len(), 2);
+        assert_eq!(documents[0].replacements.len(), 2);
+        assert_eq!(documents[1].replacements.len(), 1);
+        assert_eq!(
+            port.commands
+                .iter()
+                .filter(|command| matches!(command, CommandV1::WorkspaceEdit { .. }))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn uncertain_atomic_replace_replays_only_the_exact_retained_transaction() {
+        let workspace = WorkspaceIdV1::new(7).unwrap();
+        let document = WorkspaceDocumentIdV1::new(workspace, 9).unwrap();
+        let initial = SnapshotV1 {
+            witness: VersionWitness::new(1).unwrap(),
+            revision: 4,
+            text: Arc::from("alpha"),
+        };
+        let successor = SnapshotV1 {
+            witness: VersionWitness::new(2).unwrap(),
+            revision: 5,
+            text: Arc::from("omega"),
+        };
+        let port = ScriptedPort {
+            replies: [
+                Ok(ReplyV1::Accepted(OutcomeV1::WorkspaceInventory(
+                    WorkspaceInventoryV1 {
+                        workspace,
+                        documents: vec![document],
+                        roots: Vec::new(),
+                    },
+                ))),
+                Ok(ReplyV1::Accepted(OutcomeV1::ViewOpened(
+                    vellum_sdk_client::protocol::ViewOpenReceiptV1 {
+                        document,
+                        status: vellum_sdk_client::protocol::ViewOpenStatusV1::Opened,
+                    },
+                ))),
+                Ok(ReplyV1::Accepted(OutcomeV1::Snapshot(initial))),
+                Err(ServiceAccessErrorV1::OutcomeUnknown),
+                Ok(ReplyV1::Accepted(OutcomeV1::WorkspaceEdited(
+                    vellum_sdk_client::protocol::WorkspaceEditReceiptV1 {
+                        workspace,
+                        generation: 8,
+                        documents: vec![vellum_sdk_client::protocol::WorkspaceEditedDocumentV1 {
+                            document,
+                            snapshot: successor,
+                        }],
+                    },
+                ))),
+            ]
+            .into_iter()
+            .collect(),
+            commands: Vec::new(),
+            request_ids: Vec::new(),
+        };
+        let workspace = WorkspaceClientV1::connect(port).unwrap();
+        let mut editor = ServiceEditor::open(workspace).unwrap();
+        let preview = editor.prepare_atomic_replace("alpha", "omega").unwrap();
+        assert_eq!(
+            editor.commit_atomic_replace(&preview),
+            Err(ServiceEditorError(WorkspaceClientErrorV1::Access(
+                ServiceAccessErrorV1::OutcomeUnknown
+            )))
+        );
+        assert_eq!(
+            editor.aggregate_persistence(),
+            PersistenceProjectionV1::Indeterminate
+        );
+        assert_eq!(
+            editor.commit_atomic_replace(&preview).unwrap(),
+            AtomicReplaceCommitV1 {
+                generation: 8,
+                changed_documents: 1,
+            }
+        );
+        let port = editor.disconnect().unwrap();
+        assert_eq!(port.request_ids[3], port.request_ids[4]);
+        assert_eq!(port.commands[3], port.commands[4]);
     }
 }

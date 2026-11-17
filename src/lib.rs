@@ -15,6 +15,10 @@ mod service;
 pub use service::*;
 mod durable_save;
 pub use durable_save::*;
+mod durable_save_batch;
+pub use durable_save_batch::*;
+mod atomic_replace;
+pub use atomic_replace::*;
 
 pub use vellum_editor::EditorFrame;
 

@@ -49,6 +49,26 @@ and qualification limits. In service mode, the `Ctrl-O` prompt accepts `f PATH`
 or `d PATH`; edits and saves use witnessed service operations, and an
 indeterminate operation must be replayed exactly before exit.
 
+The reusable service controller also retains cursor, selection, and persistence
+truth independently for every admitted document. Hosts may mark a sparse
+workset of 1–16 documents; with no marks, the focused document is the explicit
+one-item fallback. `DurableSaveBatchComponent` re-observes the exact revision of
+every selected document, executes each authenticated save on its own fresh
+connection, and retains a separate receipt or refusal per child. Persistence is
+deliberately sequential and non-atomic: an unknown child stops the run, later
+children remain visibly not sent, exact receipt lookup is required, and
+continuation requires another explicit arm/confirm.
+
+For changes that should publish together in memory, `AtomicReplaceComponent`
+adapts marked-file query/replace into Vellum's stronger owner transaction. It
+accepts bounded literal find/replacement fields, re-observes all 1–16 marked
+documents, previews match counts and exact revisions, then arms one
+`WorkspaceEdit` request. The owner either publishes the complete revision-bound
+set under one generation or refuses it; an uncertain reply is recovered only by
+replaying that exact retained request. The returned snapshots become dirty
+editor state. This is intentionally not a multi-file filesystem transaction,
+so durable persistence remains the independently receipted workflow above.
+
 `tests/live/service_journey.sh` builds the exact sibling Vellum daemon, starts
 it on private Unix sockets with edit/save ceilings, drives the reusable TUI
 controller through open/edit/save/disconnect, verifies exact persisted bytes,
