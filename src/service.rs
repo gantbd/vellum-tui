@@ -69,6 +69,7 @@ pub enum ServiceInput {
     Quit,
     CancelQuit,
     Open,
+    Find,
     Apply(ServiceAction),
     Unsupported,
 }
@@ -78,6 +79,7 @@ pub fn translate_service_input(input: crate::Input) -> ServiceInput {
         crate::Input::Quit => ServiceInput::Quit,
         crate::Input::CancelQuit => ServiceInput::CancelQuit,
         crate::Input::Open => ServiceInput::Open,
+        crate::Input::Find => ServiceInput::Find,
         crate::Input::Edit(action) => match action {
             vellum_editor::Action::Insert(text) => ServiceInput::Apply(ServiceAction::Insert(text)),
             vellum_editor::Action::Backspace => ServiceInput::Apply(ServiceAction::Backspace),
@@ -249,6 +251,41 @@ impl<T: ServicePort> ServiceEditor<T> {
         self.workspace.refresh_inventory()?;
         self.reconcile_documents();
         self.ensure_selection()
+    }
+
+    /// Moves the presentation cursor to the end of the next literal match in
+    /// the current owner snapshot. This is a local projection operation: it
+    /// neither edits source nor claims a durable owner-side search result.
+    pub fn find_literal(&mut self, query: &str) -> Result<bool, ServiceEditorError> {
+        if query.is_empty() {
+            return Err(ServiceEditorError(WorkspaceClientErrorV1::Refused(
+                RefusalV1::InputLimit,
+            )));
+        }
+        if self.workspace.projection().snapshot_freshness() != ProjectionFreshnessV1::Current {
+            self.workspace.refresh_snapshot()?;
+        }
+        let text = self
+            .workspace
+            .projection()
+            .snapshot()
+            .ok_or(ServiceEditorError(WorkspaceClientErrorV1::Projection(
+                vellum_sdk_client::workspace::WorkspaceProjectionRefusalV1::SelectionRequired,
+            )))?
+            .text
+            .clone();
+        let start = self.cursor.min(text.len());
+        let found = text[start..]
+            .find(query)
+            .map(|offset| start + offset)
+            .or_else(|| text[..start].find(query));
+        if let Some(found) = found {
+            self.cursor = found.saturating_add(query.len()).min(text.len());
+            self.sync_current_state();
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 
     pub fn poll(&mut self) -> Result<(), ServiceEditorError> {
@@ -862,6 +899,56 @@ mod tests {
         assert_eq!(
             translate_service_input(crate::Input::Open),
             ServiceInput::Open
+        );
+        assert_eq!(
+            translate_service_input(crate::Input::Find),
+            ServiceInput::Find
+        );
+    }
+
+    #[test]
+    fn service_find_moves_the_local_cursor_without_editing_or_owner_effects() {
+        let workspace = WorkspaceIdV1::new(7).unwrap();
+        let document = WorkspaceDocumentIdV1::new(workspace, 9).unwrap();
+        let port = ScriptedPort {
+            replies: [
+                Ok(ReplyV1::Accepted(OutcomeV1::WorkspaceInventory(
+                    WorkspaceInventoryV1 {
+                        workspace,
+                        documents: vec![document],
+                        roots: Vec::new(),
+                    },
+                ))),
+                Ok(ReplyV1::Accepted(OutcomeV1::ViewOpened(
+                    vellum_sdk_client::protocol::ViewOpenReceiptV1 {
+                        document,
+                        status: vellum_sdk_client::protocol::ViewOpenStatusV1::Opened,
+                    },
+                ))),
+                Ok(ReplyV1::Accepted(OutcomeV1::Snapshot(SnapshotV1 {
+                    witness: VersionWitness::new(3).unwrap(),
+                    revision: 4,
+                    text: Arc::from("alpha beta alpha"),
+                }))),
+            ]
+            .into_iter()
+            .collect(),
+            commands: Vec::new(),
+            request_ids: Vec::new(),
+        };
+        let workspace = WorkspaceClientV1::connect(port).unwrap();
+        let mut editor = ServiceEditor::open(workspace).unwrap();
+
+        assert_eq!(editor.issued_requests(), 3);
+        assert!(editor.find_literal("alpha").unwrap());
+        assert_eq!(editor.frame(4).unwrap().cursor, Some((5, 0)));
+        assert!(editor.find_literal("alpha").unwrap());
+        assert_eq!(editor.frame(4).unwrap().cursor, Some((16, 0)));
+        assert!(!editor.find_literal("missing").unwrap());
+        assert_eq!(editor.issued_requests(), 3);
+        assert_eq!(
+            editor.aggregate_persistence(),
+            PersistenceProjectionV1::Clean
         );
     }
 

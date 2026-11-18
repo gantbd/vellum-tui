@@ -926,6 +926,7 @@ fn run_service_mode(
             execute!(stdout(), EnableBracketedPaste)?;
             let mut editor = editor;
             let mut prompt: Option<TextPrompt> = None;
+            let mut find_prompt: Option<TextPrompt> = None;
             let mut notice: Option<String> = None;
             let mut confirming_discard = false;
             loop {
@@ -933,13 +934,19 @@ fn run_service_mode(
                     notice = Some(error.to_string());
                 }
                 let size = terminal.size()?;
-                let prompt_notice = prompt.as_ref().map(|entry| match &notice {
-                    Some(error) => format!(
-                        "{error} | {}",
-                        entry.display(usize::from(size.width).saturating_sub(error.len() + 3))
-                    ),
-                    None => entry.display(usize::from(size.width)),
-                });
+                let prompt_notice =
+                    prompt
+                        .as_ref()
+                        .or(find_prompt.as_ref())
+                        .map(|entry| match &notice {
+                            Some(error) => format!(
+                                "{error} | {}",
+                                entry.display(
+                                    usize::from(size.width).saturating_sub(error.len() + 3)
+                                )
+                            ),
+                            None => entry.display(usize::from(size.width)),
+                        });
                 if let Some(frame) = editor.frame(size.height.saturating_sub(4)) {
                     terminal.draw(|terminal_frame| {
                         draw(
@@ -995,6 +1002,33 @@ fn run_service_mode(
                     }
                     continue;
                 }
+                if let Some(entry) = find_prompt.as_mut() {
+                    match event {
+                        Event::Key(key) => match entry.key(key) {
+                            Ok(PromptInput::Submit(query)) => {
+                                notice = Some(match editor.find_literal(&query) {
+                                    Ok(true) => "Find match selected".into(),
+                                    Ok(false) => "No literal match in the current document".into(),
+                                    Err(error) => error.to_string(),
+                                });
+                                find_prompt = None;
+                            }
+                            Ok(PromptInput::Cancel) => {
+                                find_prompt = None;
+                                notice = None;
+                            }
+                            Ok(PromptInput::Pending) => notice = None,
+                            Err(error) => notice = Some(error.to_string()),
+                        },
+                        Event::Paste(text) => {
+                            if let Err(error) = entry.insert(&text) {
+                                notice = Some(error.to_string());
+                            }
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
                 if let Event::Paste(text) = event {
                     notice = editor
                         .apply(ServiceAction::Insert(text))
@@ -1030,6 +1064,10 @@ fn run_service_mode(
                     }
                     ServiceInput::Open => {
                         prompt = Some(TextPrompt::new(4096, "Add: f PATH or d PATH"));
+                        notice = None;
+                    }
+                    ServiceInput::Find => {
+                        find_prompt = Some(TextPrompt::new(1024, "Find literal"));
                         notice = None;
                     }
                     ServiceInput::Apply(action) => {
