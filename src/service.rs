@@ -115,6 +115,45 @@ impl From<WorkspaceClientErrorV1> for ServiceEditorError {
     }
 }
 
+/// Presentation-specific preparation refusals that can be oriented without
+/// weakening the service owner's closed refusal vocabulary. No-match is not an
+/// input-limit failure and no owner mutation has been attempted at this stage.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AtomicReplacePrepareError {
+    InvalidQuery,
+    NoLiteralMatches { marked_documents: usize },
+    Service(ServiceEditorError),
+}
+
+impl std::fmt::Display for AtomicReplacePrepareError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidQuery => formatter.write_str(
+                "enter a non-empty literal and a different replacement; no edit was prepared",
+            ),
+            Self::NoLiteralMatches { marked_documents } => write!(
+                formatter,
+                "no literal matches across {marked_documents} marked document(s); edit the query or close this sheet"
+            ),
+            Self::Service(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl std::error::Error for AtomicReplacePrepareError {}
+
+impl From<ServiceEditorError> for AtomicReplacePrepareError {
+    fn from(value: ServiceEditorError) -> Self {
+        Self::Service(value)
+    }
+}
+
+impl From<WorkspaceClientErrorV1> for AtomicReplacePrepareError {
+    fn from(value: WorkspaceClientErrorV1) -> Self {
+        Self::Service(ServiceEditorError(value))
+    }
+}
+
 /// UI-local cursor over one service-owned snapshot. Source, persistence and
 /// membership authority remain in the wrapped workspace client.
 pub struct ServiceEditor<T> {
@@ -527,15 +566,13 @@ impl<T: ServicePort> ServiceEditor<T> {
         &mut self,
         query: &str,
         replacement: &str,
-    ) -> Result<AtomicReplacePreviewV1, ServiceEditorError> {
+    ) -> Result<AtomicReplacePreviewV1, AtomicReplacePrepareError> {
         if query.is_empty() || query == replacement {
-            return Err(ServiceEditorError(WorkspaceClientErrorV1::Refused(
-                RefusalV1::InputLimit,
-            )));
+            return Err(AtomicReplacePrepareError::InvalidQuery);
         }
         let selected = self.selected_documents();
         let original = self.current_document();
-        let result = (|| {
+        let result = (|| -> Result<AtomicReplacePreviewV1, AtomicReplacePrepareError> {
             let mut documents = Vec::with_capacity(selected.len());
             let mut edits = Vec::with_capacity(selected.len());
             let mut total_matches = 0usize;
@@ -559,7 +596,8 @@ impl<T: ServicePort> ServiceEditor<T> {
                 if matches.len() > MAX_WORKSPACE_EDIT_REPLACEMENTS_V1 {
                     return Err(ServiceEditorError(WorkspaceClientErrorV1::Refused(
                         RefusalV1::InputLimit,
-                    )));
+                    ))
+                    .into());
                 }
                 documents.push(AtomicReplaceDocumentPreviewV1 {
                     document_ordinal: document.get(),
@@ -597,9 +635,9 @@ impl<T: ServicePort> ServiceEditor<T> {
                 });
             }
             if edits.is_empty() {
-                return Err(ServiceEditorError(WorkspaceClientErrorV1::Refused(
-                    RefusalV1::InputLimit,
-                )));
+                return Err(AtomicReplacePrepareError::NoLiteralMatches {
+                    marked_documents: documents.len(),
+                });
             }
             Ok(AtomicReplacePreviewV1 {
                 documents,
@@ -1297,6 +1335,53 @@ mod tests {
                 .filter(|command| matches!(command, CommandV1::WorkspaceEdit { .. }))
                 .count(),
             1
+        );
+    }
+
+    #[test]
+    fn atomic_replace_no_match_is_not_misreported_as_an_input_limit() {
+        let workspace = WorkspaceIdV1::new(7).unwrap();
+        let document = WorkspaceDocumentIdV1::new(workspace, 9).unwrap();
+        let port = ScriptedPort {
+            replies: [
+                Ok(ReplyV1::Accepted(OutcomeV1::WorkspaceInventory(
+                    WorkspaceInventoryV1 {
+                        workspace,
+                        documents: vec![document],
+                        roots: Vec::new(),
+                    },
+                ))),
+                Ok(ReplyV1::Accepted(OutcomeV1::ViewOpened(
+                    vellum_sdk_client::protocol::ViewOpenReceiptV1 {
+                        document,
+                        status: vellum_sdk_client::protocol::ViewOpenStatusV1::Opened,
+                    },
+                ))),
+                Ok(ReplyV1::Accepted(OutcomeV1::Snapshot(SnapshotV1 {
+                    witness: VersionWitness::new(1).unwrap(),
+                    revision: 4,
+                    text: Arc::from("alpha"),
+                }))),
+            ]
+            .into_iter()
+            .collect(),
+            commands: Vec::new(),
+            request_ids: Vec::new(),
+        };
+        let workspace = WorkspaceClientV1::connect(port).unwrap();
+        let mut editor = ServiceEditor::open(workspace).unwrap();
+        let error = editor
+            .prepare_atomic_replace("missing", "omega")
+            .unwrap_err();
+        assert_eq!(
+            error,
+            AtomicReplacePrepareError::NoLiteralMatches {
+                marked_documents: 1,
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            "no literal matches across 1 marked document(s); edit the query or close this sheet"
         );
     }
 
