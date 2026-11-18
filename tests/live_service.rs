@@ -58,8 +58,10 @@ fn real_daemon_open_edit_save_disconnect_journey() {
     let initial = editor.frame(8).expect("startup document projected");
     assert_eq!(initial.lines, ["alpha"]);
     assert!(!initial.dirty);
+    assert!(editor.source_is_current_and_clean());
 
     editor.apply(ServiceAction::Insert("X".to_owned())).unwrap();
+    assert!(!editor.source_is_current_and_clean());
     assert_eq!(
         editor.workspace().projection().persistence(),
         PersistenceProjectionV1::Dirty
@@ -67,6 +69,7 @@ fn real_daemon_open_edit_save_disconnect_journey() {
     assert_eq!(editor.frame(8).unwrap().lines, ["Xalpha"]);
 
     editor.apply(ServiceAction::Save).unwrap();
+    assert!(editor.source_is_current_and_clean());
     assert_eq!(
         editor.workspace().projection().persistence(),
         PersistenceProjectionV1::Clean
@@ -91,7 +94,9 @@ fn real_daemon_open_edit_save_disconnect_journey() {
         editor.workspace().projection().persistence(),
         PersistenceProjectionV1::Indeterminate
     );
+    assert!(!editor.source_is_current_and_clean());
     editor.apply(ServiceAction::Save).unwrap();
+    assert!(editor.source_is_current_and_clean());
     assert_eq!(
         editor.workspace().projection().persistence(),
         PersistenceProjectionV1::Clean

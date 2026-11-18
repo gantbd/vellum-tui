@@ -343,6 +343,13 @@ impl<T: ServicePort> ServiceEditor<T> {
         Ok(())
     }
 
+    /// Exact current projection evidence for host feedback settlement. This is
+    /// read-only and does not imply durable-save receipt evidence.
+    pub fn source_is_current_and_clean(&self) -> bool {
+        self.workspace.projection().snapshot_freshness() == ProjectionFreshnessV1::Current
+            && self.current_persistence() == PersistenceProjectionV1::Clean
+    }
+
     pub fn frame(&self, height: u16) -> Option<EditorFrame> {
         let projection = self.workspace.projection();
         let snapshot = projection.snapshot()?;
@@ -1108,14 +1115,17 @@ mod tests {
         };
         let workspace = WorkspaceClientV1::connect(port).unwrap();
         let mut editor = ServiceEditor::open(workspace).unwrap();
+        assert!(editor.source_is_current_and_clean());
         editor.apply(ServiceAction::Right).unwrap();
         editor.apply(ServiceAction::Insert("界".into())).unwrap();
+        assert!(!editor.source_is_current_and_clean());
         assert_eq!(editor.frame(4).unwrap().cursor, Some((3, 0)));
         assert_eq!(
             editor.workspace().projection().persistence(),
             PersistenceProjectionV1::Dirty
         );
         editor.apply(ServiceAction::Save).unwrap();
+        assert!(editor.source_is_current_and_clean());
         assert_eq!(
             editor.workspace().projection().persistence(),
             PersistenceProjectionV1::Clean
