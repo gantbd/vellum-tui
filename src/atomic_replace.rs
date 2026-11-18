@@ -70,7 +70,9 @@ impl Default for AtomicReplaceComponent {
 }
 
 impl AtomicReplaceComponent {
-    pub const MAX_FIELD_BYTES: usize = 256;
+    /// A code or planning replacement often spans several lines. Keep the
+    /// composer finite, but large enough for one reviewable local change.
+    pub const MAX_FIELD_BYTES: usize = 4_096;
 
     pub fn new() -> Self {
         Self {
@@ -111,7 +113,7 @@ impl AtomicReplaceComponent {
                 if target.len().saturating_add(character.len_utf8()) <= Self::MAX_FIELD_BYTES {
                     target.push(character);
                 } else {
-                    self.notice = "Atomic replace fields are bounded to 256 UTF-8 bytes".into();
+                    self.notice = "Atomic replace fields are bounded to 4096 UTF-8 bytes".into();
                 }
             }
             AtomicReplaceInput::Backspace
@@ -188,6 +190,31 @@ impl AtomicReplaceComponent {
             | AtomicReplaceInput::Close => {}
         }
         AtomicReplaceLifecycle::Running
+    }
+
+    /// Inserts one bounded literal paste into the active field. Admission is
+    /// all-or-none so a large paste cannot silently create a different query
+    /// or replacement. Controls remain literal and are escaped when rendered.
+    pub fn insert_text(&mut self, text: &str, focused: bool) -> bool {
+        if !focused || self.disposition != AtomicReplaceDisposition::Editing {
+            return false;
+        }
+        // Terminals commonly report bracketed-paste newlines as CR or CRLF.
+        // Vellum's text projection uses LF, so normalize only line endings and
+        // preserve every other pasted byte exactly.
+        let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+        let target = self.active_field_mut();
+        if target
+            .len()
+            .checked_add(normalized.len())
+            .is_none_or(|length| length > Self::MAX_FIELD_BYTES)
+        {
+            self.notice = "Atomic replace fields are bounded to 4096 UTF-8 bytes".into();
+            return false;
+        }
+        target.push_str(&normalized);
+        self.notice = "Pasted bounded literal text into the active atomic-replace field".into();
+        true
     }
 
     fn submit<T: ServicePort>(&mut self, editor: &mut ServiceEditor<T>) {
@@ -330,5 +357,15 @@ mod tests {
         let displayed = display_literal("a\nb\u{1b}[31m");
         assert_eq!(displayed, "\"a\\nb\\u{1b}[31m\"");
         assert!(!displayed.contains('\n'));
+    }
+
+    #[test]
+    fn literal_paste_preserves_shifted_and_multiline_text_all_or_none() {
+        let mut component = AtomicReplaceComponent::new();
+        assert!(component.insert_text("EnsembleCorrelationV1\r\nnext\rthird", true));
+        assert_eq!(component.query, "EnsembleCorrelationV1\nnext\nthird");
+        let before = component.query.clone();
+        assert!(!component.insert_text(&"x".repeat(AtomicReplaceComponent::MAX_FIELD_BYTES), true));
+        assert_eq!(component.query, before);
     }
 }

@@ -119,6 +119,7 @@ pub struct ServiceEditor<T> {
     workspace: WorkspaceClientV1<T>,
     cursor: usize,
     documents: Vec<DocumentUiState>,
+    identity_renewed: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -136,6 +137,7 @@ impl<T: ServicePort> ServiceEditor<T> {
             workspace,
             cursor: 0,
             documents: Vec::new(),
+            identity_renewed: false,
         };
         editor.ensure_selection()?;
         editor.reconcile_documents();
@@ -147,6 +149,27 @@ impl<T: ServicePort> ServiceEditor<T> {
         &self.workspace
     }
 
+    pub const fn issued_requests(&self) -> u64 {
+        self.workspace.issued_requests()
+    }
+
+    /// Renews the bounded owner-client identity without discarding local
+    /// cursor/workset state or the owner-backed workspace projection.
+    pub fn renew_identity(&mut self) -> Result<(), WorkspaceClientErrorV1> {
+        self.workspace.renew_identity()?;
+        self.reconcile_documents();
+        self.clamp_cursor();
+        self.sync_current_state();
+        Ok(())
+    }
+
+    /// Returns whether the preceding editor action renewed its bounded service
+    /// identity. Presentation hosts can turn this into content-free telemetry
+    /// without learning document bytes or replay identities.
+    pub fn take_identity_renewal(&mut self) -> bool {
+        std::mem::take(&mut self.identity_renewed)
+    }
+
     pub fn disconnect(
         self,
     ) -> Result<T, vellum_sdk_client::workspace::WorkspaceDisconnectFailureV1<T>> {
@@ -154,6 +177,7 @@ impl<T: ServicePort> ServiceEditor<T> {
     }
 
     pub fn apply(&mut self, action: ServiceAction) -> Result<(), ServiceEditorError> {
+        self.renew_before_capacity()?;
         let result = (|| {
             match action {
                 ServiceAction::Insert(inserted) => {
@@ -201,6 +225,16 @@ impl<T: ServicePort> ServiceEditor<T> {
         self.clamp_cursor();
         self.sync_current_state();
         result
+    }
+
+    fn renew_before_capacity(&mut self) -> Result<(), ServiceEditorError> {
+        const RENEW_AT_REQUESTS: u64 = 192;
+        if self.workspace.issued_requests() < RENEW_AT_REQUESTS {
+            return Ok(());
+        }
+        self.renew_identity()?;
+        self.identity_renewed = true;
+        Ok(())
     }
 
     pub fn admit_file(&mut self, locator: String) -> Result<(), ServiceEditorError> {
@@ -606,6 +640,11 @@ impl<T: ServicePort> ServiceEditor<T> {
                 state.persistence = PersistenceProjectionV1::Clean;
             }
         }
+        if let Some(document) = self.current_document()
+            && ordinals.contains(&document.get())
+        {
+            self.workspace.admit_durable_document(document);
+        }
     }
 
     fn toggle_document_selection(&mut self) {
@@ -827,6 +866,75 @@ mod tests {
     }
 
     #[test]
+    fn identity_renewal_preserves_editor_projection_cursor_and_resets_requests() {
+        let workspace = WorkspaceIdV1::new(7).unwrap();
+        let document = WorkspaceDocumentIdV1::new(workspace, 9).unwrap();
+        let snapshot = SnapshotV1 {
+            witness: VersionWitness::new(3).unwrap(),
+            revision: 4,
+            text: Arc::from("alpha"),
+        };
+        let port = ScriptedPort {
+            replies: [
+                Ok(ReplyV1::Accepted(OutcomeV1::WorkspaceInventory(
+                    WorkspaceInventoryV1 {
+                        workspace,
+                        documents: vec![document],
+                        roots: Vec::new(),
+                    },
+                ))),
+                Ok(ReplyV1::Accepted(OutcomeV1::ViewOpened(
+                    vellum_sdk_client::protocol::ViewOpenReceiptV1 {
+                        document,
+                        status: vellum_sdk_client::protocol::ViewOpenStatusV1::Opened,
+                    },
+                ))),
+                Ok(ReplyV1::Accepted(OutcomeV1::Snapshot(snapshot.clone()))),
+                Ok(ReplyV1::Accepted(OutcomeV1::WorkspaceInventory(
+                    WorkspaceInventoryV1 {
+                        workspace,
+                        documents: vec![document],
+                        roots: Vec::new(),
+                    },
+                ))),
+                Ok(ReplyV1::Accepted(OutcomeV1::ViewOpened(
+                    vellum_sdk_client::protocol::ViewOpenReceiptV1 {
+                        document,
+                        status: vellum_sdk_client::protocol::ViewOpenStatusV1::Opened,
+                    },
+                ))),
+                Ok(ReplyV1::Accepted(OutcomeV1::Snapshot(snapshot))),
+                Ok(ReplyV1::Accepted(OutcomeV1::Saved(SaveReceiptV1 {
+                    application: SaveApplicationV1::Written,
+                    synchronization: SaveSynchronizationV1::Succeeded,
+                    no_future_effects: true,
+                    quiescent: true,
+                    adapter_failure: false,
+                    cleanup_failed: false,
+                    baseline_published: true,
+                    outcome_unknown: false,
+                }))),
+            ]
+            .into_iter()
+            .collect(),
+            commands: Vec::new(),
+            request_ids: Vec::new(),
+        };
+        let workspace = WorkspaceClientV1::connect(port).unwrap();
+        let mut editor = ServiceEditor::open(workspace).unwrap();
+        editor.apply(ServiceAction::Right).unwrap();
+        assert_eq!(editor.issued_requests(), 3);
+
+        editor.renew_identity().unwrap();
+        assert_eq!(editor.issued_requests(), 3);
+        assert_eq!(editor.frame(4).unwrap().cursor, Some((1, 0)));
+        editor.apply(ServiceAction::Save).unwrap();
+
+        let port = editor.disconnect().unwrap();
+        assert_eq!(port.request_ids, vec![1, 2, 3, 1, 2, 3, 4]);
+    }
+
+    #[test]
     fn service_editor_opens_edits_saves_and_returns_its_transport() {
         let workspace = WorkspaceIdV1::new(7).unwrap();
         let document = WorkspaceDocumentIdV1::new(workspace, 9).unwrap();
@@ -985,6 +1093,11 @@ mod tests {
             editor.aggregate_persistence(),
             PersistenceProjectionV1::Clean
         );
+        assert_eq!(
+            editor.workspace().projection().persistence(),
+            PersistenceProjectionV1::Clean
+        );
+        assert!(!editor.frame(4).unwrap().dirty);
     }
 
     #[test]
